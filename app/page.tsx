@@ -348,7 +348,7 @@ function ReverseCartApp() {
               </div>
             </aside>
           </div>
-          <div className="auction-bottom"><p><span /> Auction closes automatically after {auctionDurations.find((duration) => duration.seconds === auctionDuration)?.label}. No money has moved.</p><button className="ghost solid" onClick={() => setStage("decision")} disabled={visibleEvents < 3}>End bidding now</button></div>
+          <div className="auction-bottom"><p><span /> Auction closes automatically after {auctionDurations.find((duration) => duration.seconds === auctionDuration)?.label}. No money has moved.</p><button className="ghost solid" onClick={() => setStage("decision")}>End bidding now</button></div>
           <p className="data-attribution">{hotelSource === "liteapi" ? "Hotel identities, photos and date-specific stay prices from LiteAPI sandbox · Negotiated benefits remain simulated." : hotelSource === "geoapify" ? "Real hotel identities and locations from OpenStreetMap via Geoapify · Bid prices and benefits are simulated." : "Hackathon test hotels · Bid prices and benefits are simulated."}</p>
         </section>
       )}
