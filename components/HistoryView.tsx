@@ -7,7 +7,7 @@ import { destinationFromPrompt } from "@/lib/request";
 
 type SavedRequest = { id: string; raw_prompt: string; destination: string; timing: string; max_total_minor: number; status: string; created_at: string; offers?: Array<{ id: string }> };
 
-const statusLabels: Record<string, string> = { draft: "Draft", open: "Auction live", closed: "Offers ready", selected: "Hotel selected", payment_pending: "Payment pending", completed: "Completed", payment_failed: "Payment failed" };
+const statusLabels: Record<string, string> = { draft: "Draft", open: "Auction live", closed: "Market complete", selected: "Hotel selected", payment_pending: "Payment pending", completed: "Completed", payment_failed: "Payment failed" };
 
 export function HistoryView() {
   const [requests, setRequests] = useState<SavedRequest[]>([]);

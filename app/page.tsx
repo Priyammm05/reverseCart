@@ -114,6 +114,24 @@ function ReverseCartApp() {
         const selected = body.offers.find((offer: { selected?: boolean }) => offer.selected);
         if (selected) setSelectedOfferId(selected.merchant_id);
       }
+      if (saved.status !== "draft") {
+        fetch("/api/interpret", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: saved.raw_prompt }) }).then((response) => response.json()).then(async (interpretedBody) => {
+          const interpreted = interpretedBody.data as InterpretedRequest | undefined;
+          if (!interpreted) return;
+          setInterpretation(interpreted);
+          const legs = interpreted.legs?.length ? interpreted.legs : [{ destination: interpreted.destination, timing: interpreted.timing }];
+          if (legs.length < 2) return;
+          const markets = await Promise.all(legs.map(async (leg, legIndex) => {
+            const legDates = datesForTiming(leg.timing);
+            const params = new URLSearchParams({ destination: leg.destination, checkin: legDates.checkin, checkout: legDates.checkout, guests: String(interpreted.guests), rooms: String(interpreted.rooms) });
+            const hotelBody = await fetch(`/api/hotels?${params}`).then((response) => response.json());
+            if (!["geoapify", "liteapi"].includes(hotelBody.source) || !Array.isArray(hotelBody.hotels) || hotelBody.hotels.length < 3) return initialOffers.map((offer, index) => ({ ...offer, id: `${legIndex}-${offer.id}`, hotel: `${leg.destination} fallback ${index + 1}`, mark: String(index + 1), dataSource: "fixture" as const }));
+            return initialOffers.map((offer, index) => { const hotel = hotelBody.hotels[index]; const livePrice = hotel.liveTotal ? Math.round(hotel.liveTotal) : offer.price; return { ...offer, id: `${legIndex}-${hotel.id || offer.id}`, price: livePrice, openingPrice: livePrice, hotel: hotel.name, mark: hotel.name.slice(0, 1).toUpperCase(), distance: hotel.distanceKm, rating: hotel.rating || offer.rating, address: hotel.address, latitude: hotel.latitude, longitude: hotel.longitude, imageUrl: hotel.imageUrl, imageSourceUrl: hotel.imageSourceUrl, imageProvider: hotel.imageProvider, dataSource: hotelBody.source }; });
+          }));
+          setLegOffers(markets);
+          setOffers(markets[0]);
+        }).catch(() => undefined);
+      }
       setStage(saved.status === "selected" || saved.status === "payment_pending" || saved.status === "closed" ? "decision" : saved.status === "open" ? "bidding" : "review");
       window.history.replaceState({}, "", "/");
     }).catch((cause) => setError(cause.message));
@@ -214,7 +232,8 @@ function ReverseCartApp() {
     setVisibleEvents(0);
     setStage("bidding");
     if (!requestId) return;
-    await fetch(`/api/requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "open", offers: offers.map((offer) => ({ merchantId: offer.id, merchantName: offer.hotel, totalMinor: offer.price * 100, benefits: offer.benefits, cancellation: offer.cancellation, distanceKm: offer.distance, score: scoreOffer(offer), selected: false })) }) });
+    const allOffers = legOffers.length > 1 ? legOffers.flat() : offers;
+    await fetch(`/api/requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "open", offers: allOffers.map((offer) => ({ merchantId: offer.id, merchantName: offer.hotel, totalMinor: offer.price * 100, benefits: offer.benefits, cancellation: offer.cancellation, distanceKm: offer.distance, score: scoreOffer(offer), selected: false })) }) });
   }
 
   async function selectOffer(offer: Offer) {

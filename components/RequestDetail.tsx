@@ -7,7 +7,7 @@ import { destinationFromPrompt, interpretFallback } from "@/lib/request";
 
 type Detail = { request: { destination: string; raw_prompt: string; timing: string; max_total_minor: number; status: string; required_constraints: string[]; preferred_constraints: string[] }; offers: Array<{ id: string; merchant_name: string; total_minor: number; selected: boolean; benefits: string[] }>; reservations: Array<{ id: string; merchant_name: string; status: string; booking_reference?: string }>; payments: Array<{ id: string; provider: string; status: string }> };
 type HotelEnrichment = { name: string; address: string; distanceKm: number; imageUrl?: string; imageSourceUrl?: string; imageProvider?: "liteapi" | "foursquare" | "wikimedia" };
-const statusLabels: Record<string, string> = { draft: "Draft", open: "Auction live", closed: "Offers ready", selected: "Hotel selected", payment_pending: "Payment pending", completed: "Completed", payment_failed: "Payment failed" };
+const statusLabels: Record<string, string> = { draft: "Draft", open: "Auction live", closed: "Market complete", selected: "Hotel selected", payment_pending: "Payment pending", completed: "Completed", payment_failed: "Payment failed" };
 
 export function RequestDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<Detail | null>(null);
