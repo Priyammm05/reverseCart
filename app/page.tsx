@@ -359,7 +359,7 @@ function ReverseCartApp() {
               <div className="pay-amount"><small>YOU WILL PAY</small><strong>{formatINR(winner.price)}</strong></div>
               <div className="authorization-row"><span>Merchant</span><b>{winner.hotel}</b></div><div className="authorization-row"><span>Maximum allowed</span><b>{formatINR(interpretation.maxTotalMinor / 100)}</b></div><div className="authorization-row"><span>Recurring</span><b>Blocked</b></div><div className="authorization-row"><span>Approval</span><b>Required now</b></div>
               <button className="pay-button" onClick={pay} disabled={paying}>{paying ? <><i className="spinner" /> Confirming with Prava…</> : <>Approve with Prava <b>→</b></>}</button>
-              <p className="sandbox-note">{paymentMode === "prava" ? "Prava sandbox is ready. Approval opens Prava’s hosted checkout; confirmation follows only after the merchant charge is reported." : "Demo gateway active. Add the Prava sandbox key and public HTTPS callback and merchant endpoints to activate hosted checkout."}</p>
+              <p className="sandbox-note">{paymentMode === "prava" ? "Prava sandbox is ready. Approval opens Prava’s hosted checkout, then a protected test-hotel simulator reports the result. No real hotel is charged or booked." : "Demo gateway active. Add the Prava sandbox key and public HTTPS callback and merchant endpoints to activate hosted checkout."}</p>
               {error && <p className="inline-error dark-error" role="alert">{error}</p>}
             </aside>
           </div>
@@ -370,7 +370,7 @@ function ReverseCartApp() {
       {stage === "confirmed" && receipt && (
         <section className="content-page confirmation page-enter">
           <div className="success-orbit"><span>✓</span></div>
-          <span className="kicker success">PAYMENT VERIFIED</span><h1>Your stay is confirmed.</h1><p>{winner.hotel} has received the reservation and your room is locked in.</p>
+          <span className="kicker success">SANDBOX PAYMENT VERIFIED</span><h1>Your test reservation is confirmed.</h1><p>The end-to-end Prava sandbox flow completed for {winner.hotel}. No real hotel was charged or booked.</p>
           <div className="receipt card">
             <div className="receipt-head"><div className="hotel-mark" style={{ background: winner.color }}>{winner.mark}</div><div><h3>{winner.hotel}</h3><span>Tonight → Tomorrow · 1 guest</span></div><strong>{formatINR(winner.price)}</strong></div>
             <div className="receipt-grid"><div><small>BOOKING REFERENCE</small><b>{receipt.bookingReference}</b></div><div><small>DEMO TRANSACTION</small><b>{receipt.transactionId}</b></div><div><small>STATUS</small><b className="status-confirmed">● Confirmed</b></div><div><small>CONFIRMED AT</small><b>{new Date(receipt.confirmedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</b></div></div>

@@ -5,7 +5,10 @@ export async function GET() {
     secretKey: Boolean(process.env.PRAVA_SECRET_KEY),
     publicCallback: Boolean(process.env.NEXT_PUBLIC_APP_URL?.startsWith("https://")),
     merchantIdentity: Boolean(process.env.REVERSECART_MERCHANT_URL?.startsWith("https://")),
-    merchantCheckout: Boolean(process.env.REVERSECART_MERCHANT_CHECKOUT_URL?.startsWith("https://")),
+    merchantCheckout: Boolean(
+      process.env.REVERSECART_MERCHANT_CHECKOUT_URL?.startsWith("https://") &&
+      process.env.REVERSECART_MERCHANT_CHECKOUT_KEY,
+    ),
   };
   return NextResponse.json({
     mode: Object.values(checks).every(Boolean) ? "prava" : "demo",
