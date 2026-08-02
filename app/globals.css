@@ -336,10 +336,10 @@ footer { border-color: var(--color-border); padding: var(--space-5) var(--sectio
 .linked-summary-total small { display: block; color: var(--color-ink-muted); font-size: .6rem; letter-spacing: .12em; }
 .linked-summary-total strong { display: block; font: 800 1.8rem var(--font-display); }
 .linked-summary-total span { font-size: .7rem; font-weight: 800; }.within-budget { color: var(--color-success); }.over-budget { color: var(--color-market); }
-.linked-summary article { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .75rem; padding-top: .8rem; border-top: 1px solid var(--color-border-soft); }
-.linked-summary article > span { width: 1.8rem; height: 1.8rem; display: grid; place-items: center; border-radius: 50%; background: var(--color-accent-soft); color: var(--color-accent-strong); font-weight: 800; }
-.linked-summary article small,.linked-summary article b { display: block; }
-.linked-summary article small { color: var(--color-ink-muted); }
+.linked-stop { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: .75rem; width: 100%; padding: .85rem; border: 1px solid transparent; border-top-color: var(--color-border-soft); border-radius: var(--radius-2); background: transparent; color: inherit; text-align: left; }
+.linked-stop:hover,.linked-stop.active { border-color: var(--color-accent); background: var(--color-accent-soft); transform: none; }
+.linked-stop > span { width: 1.8rem; height: 1.8rem; display: grid; place-items: center; border-radius: 50%; background: var(--color-accent-soft); color: var(--color-accent-strong); font-weight: 800; }
+.linked-stop small,.linked-stop b { display: block; }.linked-stop small { color: var(--color-ink-muted); }.linked-stop em { min-width: 5rem; color: var(--color-accent-strong); font-size: .7rem; font-style: normal; font-weight: 800; text-align: right; }
 .offer-card { height: auto; min-height: 0; padding: 1rem; }
 .hotel-photo { height: 10.5rem; margin-bottom: .85rem; }
 .hotel-photo-fallback {
@@ -363,6 +363,7 @@ footer { border-color: var(--color-border); padding: var(--space-5) var(--sectio
   .leg-offer-grid { display: flex; overflow-x: auto; padding: .5rem; margin-inline: -.5rem; scroll-snap-type: x mandatory; }
   .leg-offer-grid .offer-card { min-width: 78vw; scroll-snap-align: center; }
   .linked-summary { grid-template-columns: 1fr; }.linked-summary-total { text-align: left; }
+  .linked-stop { grid-template-columns: auto 1fr auto; }.linked-stop > strong { grid-column: 2; }.linked-stop em { grid-column: 3; grid-row: 1 / span 2; }
 }
 @media (hover: hover) and (pointer: fine) {
   .merchant-order:hover, .merchant-audit:hover { transform: translateY(-.2rem); }

@@ -10,7 +10,7 @@ export async function interpretRequest(prompt: string): Promise<{ data: Interpre
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-5-mini",
-      input: [{ role: "system", content: "Extract a hotel purchase request. Put every distinct city or overnight stop in legs, in travel order; a normal request has one leg. destination and timing mirror the first leg. maxTotalMinor is the combined budget in Indian paise: multiply a rupee budget by 100 (for example ₹12,000 becomes 1200000). Never increase or invent the user's budget. Return only schema-valid data." }, { role: "user", content: prompt }],
+      input: [{ role: "system", content: "Extract a hotel purchase request. Put every distinct overnight stop in legs, in travel order; preserve the exact requested landmark in each destination (for example Delhi Airport, not merely Delhi; Jaipur Railway Station, not merely Jaipur). A normal request has one leg. destination and timing mirror the first leg. maxTotalMinor is the combined budget in Indian paise: multiply a rupee budget by 100 (for example ₹12,000 becomes 1200000). Never increase or invent the user's budget. Return only schema-valid data." }, { role: "user", content: prompt }],
       text: {
         format: {
           type: "json_schema",
@@ -38,7 +38,11 @@ export async function interpretRequest(prompt: string): Promise<{ data: Interpre
     const parsed = JSON.parse(outputText) as InterpretedRequest;
     // The deterministic parser is the authority for money so an LLM can never
     // raise the mandate or confuse rupees with paise.
-    return { data: { ...parsed, maxTotalMinor: fallback.maxTotalMinor }, source: "openai" };
+    const fallbackLegs = fallback.legs || [];
+    const exactLegs = fallbackLegs.length > 1 && fallbackLegs.length === parsed.legs?.length
+      ? fallbackLegs.map((leg, index) => ({ ...leg, timing: parsed.legs?.[index]?.timing || leg.timing }))
+      : parsed.legs;
+    return { data: { ...parsed, destination: exactLegs?.[0]?.destination || parsed.destination, legs: exactLegs, maxTotalMinor: fallback.maxTotalMinor }, source: "openai" };
   }
   catch { return { data: fallback, source: "fallback" }; }
 }
