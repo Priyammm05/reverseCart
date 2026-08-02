@@ -83,6 +83,7 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
   const [hotelReference, setHotelReference] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
   const [paymentMode, setPaymentMode] = useState<"checking" | "demo" | "prava">("checking");
+  const [activePaymentSession, setActivePaymentSession] = useState<string | null>(null);
   const [resumeLoading, setResumeLoading] = useState(Boolean(resumeIdProp));
   const [restoreStops, setRestoreStops] = useState<string[]>(["Market"]);
 
@@ -92,6 +93,31 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
       .then((body) => setPaymentMode(body.mode === "prava" ? "prava" : "demo"))
       .catch(() => setPaymentMode("demo"));
   }, []);
+
+  useEffect(() => {
+    if (stage !== "payment" || paymentMode !== "prava") return;
+    const sessionId = activePaymentSession || window.localStorage.getItem("reversecart.pravaSessionId");
+    const reservationId = window.localStorage.getItem("reversecart.reservationId");
+    if (!sessionId || !reservationId) return;
+    let stopped = false;
+    let timer: number | undefined;
+    const verify = async () => {
+      try {
+        const response = await fetch(`/api/payment/status?sessionId=${encodeURIComponent(sessionId)}&reservationId=${encodeURIComponent(reservationId)}`, { cache: "no-store" });
+        const result = await response.json();
+        if (stopped) return;
+        if (response.ok && result.status === "confirmed" && result.bookingReference) {
+          setReceipt({ transactionId: result.transactionId || "PRAVA-SANDBOX", bookingReference: result.bookingReference, confirmedAt: result.confirmedAt || new Date().toISOString() });
+          setStage("confirmed");
+          return;
+        }
+        if (result.status === "failed") { setError("Prava did not approve this payment. You can retry safely."); return; }
+      } catch { /* A later poll retries transient network failures. */ }
+      if (!stopped) timer = window.setTimeout(verify, 2000);
+    };
+    void verify();
+    return () => { stopped = true; if (timer) window.clearTimeout(timer); };
+  }, [stage, paymentMode, activePaymentSession]);
 
   useEffect(() => {
     const applyPaymentResult = (result: { transactionId?: string; bookingReference?: string; confirmedAt?: string }) => {
@@ -179,7 +205,7 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
           setStage("decision");
           void fetch(`/api/requests/${resumeId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed" }) });
         }
-      } else setStage(saved.status === "selected" || saved.status === "payment_pending" || saved.status === "closed" ? "decision" : "review");
+      } else setStage(saved.status === "payment_pending" ? "payment" : saved.status === "selected" || saved.status === "closed" ? "decision" : "review");
       window.history.replaceState({}, "", `/market/${resumeId}`);
     }).catch((cause) => { setError(cause.message); setResumeLoading(false); });
   }, [resumeIdProp]);
@@ -314,6 +340,7 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
       window.localStorage.setItem("reversecart.pravaSessionId", data.sessionId);
       window.localStorage.setItem("reversecart.reservationId", data.reservationId);
       window.localStorage.setItem("reversecart.requestId", requestId || "");
+      setActivePaymentSession(data.sessionId);
       if (checkoutWindow) checkoutWindow.location.replace(data.checkoutUrl);
       else window.location.assign(data.checkoutUrl);
       return;
