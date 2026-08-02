@@ -1,0 +1,14 @@
+.env*
+.next/
+.next.*
+node_modules/
+artifacts/
+tmp/
+test-results/
+playwright-report/
+.playwright-browsers/
+.npm-cache/
+*.tsbuildinfo
+
+*.md
+!README.md

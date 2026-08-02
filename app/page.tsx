@@ -1,0 +1,388 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { bidEvents, formatINR, initialOffers, Offer, scoreOffer, Stage } from "@/lib/domain";
+import { destinationFromPrompt, fallbackInterpretation, interpretFallback, InterpretedRequest } from "@/lib/request";
+import { Logo } from "@/components/Logo";
+import { AuthGate } from "@/components/AuthGate";
+import { UserMenu } from "@/components/UserMenu";
+import { SiteFooter } from "@/components/SiteFooter";
+
+const requestHints = [
+  "Hotel near the hackathon venue tonight, under ₹8,000, with late check-in.",
+  "Two family rooms in Bengaluru this weekend, under ₹12,000, with breakfast.",
+  "An airport hotel for an early flight, under ₹6,500, with a free shuttle.",
+  "An accessible hotel near the city centre tomorrow, under ₹7,500.",
+  "A quiet business hotel for three nights, with Wi-Fi and free cancellation.",
+];
+
+const steps: { id: Stage; label: string }[] = [
+  { id: "request", label: "Request" },
+  { id: "bidding", label: "Offers" },
+  { id: "payment", label: "Payment" },
+  { id: "confirmed", label: "Confirmed" },
+];
+
+function stageIndex(stage: Stage) {
+  if (stage === "review") return 0;
+  if (stage === "decision") return 1;
+  return steps.findIndex((step) => step.id === stage);
+}
+
+function datesForTiming(timing: string) {
+  const checkin = new Date();
+  checkin.setHours(12, 0, 0, 0);
+  const lower = timing.toLowerCase();
+  if (lower.includes("tomorrow")) checkin.setDate(checkin.getDate() + 1);
+  if (lower.includes("weekend")) {
+    const daysUntilSaturday = (6 - checkin.getDay() + 7) % 7 || 7;
+    checkin.setDate(checkin.getDate() + daysUntilSaturday);
+  }
+  const checkout = new Date(checkin);
+  const nights = Number(lower.match(/(\d+)\s*nights?/)?.[1] || 1);
+  checkout.setDate(checkout.getDate() + Math.max(1, nights));
+  const iso = (date: Date) => date.toISOString().slice(0, 10);
+  return { checkin: iso(checkin), checkout: iso(checkout) };
+}
+
+function ReverseCartApp() {
+  const [stage, setStage] = useState<Stage>("request");
+  const [request, setRequest] = useState("");
+  const [hintIndex, setHintIndex] = useState(0);
+  const [offers, setOffers] = useState<Offer[]>(initialOffers);
+  const [visibleEvents, setVisibleEvents] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(18);
+  const [paying, setPaying] = useState(false);
+  const [interpreting, setInterpreting] = useState(false);
+  const [interpretation, setInterpretation] = useState<InterpretedRequest>(fallbackInterpretation);
+  const [error, setError] = useState("");
+  const [receipt, setReceipt] = useState<{ transactionId: string; bookingReference: string; confirmedAt: string } | null>(null);
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [showAlternatives, setShowAlternatives] = useState(false);
+  const [hotelSource, setHotelSource] = useState<"fixture" | "geoapify" | "liteapi">("fixture");
+  const [hotelReference, setHotelReference] = useState("");
+  const [requestId, setRequestId] = useState<string | null>(null);
+  const [paymentMode, setPaymentMode] = useState<"checking" | "demo" | "prava">("checking");
+
+  useEffect(() => {
+    fetch("/api/payment/readiness", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((body) => setPaymentMode(body.mode === "prava" ? "prava" : "demo"))
+      .catch(() => setPaymentMode("demo"));
+  }, []);
+
+  useEffect(() => {
+    if (request || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const timer = window.setInterval(() => setHintIndex((index) => (index + 1) % requestHints.length), 3200);
+    return () => window.clearInterval(timer);
+  }, [request]);
+
+  useEffect(() => {
+    const resumeId = new URLSearchParams(window.location.search).get("resume");
+    if (!resumeId) return;
+    fetch(`/api/requests/${encodeURIComponent(resumeId)}`).then(async (response) => {
+      if (!response.ok) throw new Error("Saved draft could not be opened.");
+      const body = await response.json();
+      const saved = body.request;
+      if (!saved) throw new Error("Saved draft was not found.");
+      const recovered = interpretFallback(saved.raw_prompt);
+      setRequest(saved.raw_prompt);
+      setRequestId(resumeId);
+      setInterpretation({ destination: destinationFromPrompt(saved.raw_prompt, saved.destination), timing: saved.timing || recovered.timing, guests: recovered.guests, rooms: recovered.rooms, maxTotalMinor: recovered.maxTotalMinor, required: saved.required_constraints?.length ? saved.required_constraints : recovered.required, preferred: saved.preferred_constraints?.length ? saved.preferred_constraints : recovered.preferred });
+      if (Array.isArray(body.offers) && body.offers.length) {
+        setOffers(body.offers.map((offer: { merchant_id: string; merchant_name: string; total_minor: number; benefits?: string[]; cancellation?: string; distance_km?: number; selected?: boolean }, index: number) => ({ id: offer.merchant_id, hotel: offer.merchant_name, mark: offer.merchant_name.slice(0, 1).toUpperCase(), color: initialOffers[index % initialOffers.length].color, price: offer.total_minor / 100, openingPrice: offer.total_minor / 100, distance: Number(offer.distance_km || 0), rating: initialOffers[index % initialOffers.length].rating, benefits: offer.benefits || [], cancellation: offer.cancellation || "Terms unavailable", selected: offer.selected })));
+        const selected = body.offers.find((offer: { selected?: boolean }) => offer.selected);
+        if (selected) setSelectedOfferId(selected.merchant_id);
+      }
+      setStage(saved.status === "selected" || saved.status === "payment_pending" ? "decision" : saved.status === "open" || saved.status === "closed" ? "bidding" : "review");
+      window.history.replaceState({}, "", "/");
+    }).catch((cause) => setError(cause.message));
+  }, []);
+
+  useEffect(() => {
+    if (stage !== "bidding") return;
+    if (timeLeft <= 0) {
+      setStage("decision");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      const elapsed = 18 - timeLeft + 1;
+      setTimeLeft((value) => value - 1);
+      const nextCount = bidEvents.filter((event) => event.at <= elapsed).length;
+      setVisibleEvents(nextCount);
+
+      if (elapsed === 8 && hotelSource !== "liteapi") {
+        setOffers((current) => current.map((offer) => (offer.id === "mora" ? { ...offer, price: 7300 } : offer)));
+      }
+      if (elapsed === 11) {
+        setOffers((current) =>
+          current.map((offer) =>
+            offer.id === "luma" && !offer.benefits.includes("Late checkout")
+              ? { ...offer, benefits: [...offer.benefits, "Late checkout"] }
+              : offer,
+          ),
+        );
+      }
+      if (elapsed === 14 && hotelSource !== "liteapi") {
+        setOffers((current) => current.map((offer) => (offer.id === "luma" ? { ...offer, price: 7600 } : offer)));
+      }
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [stage, timeLeft, hotelSource]);
+
+  const ranked = useMemo(
+    () => [...offers].sort((a, b) => scoreOffer(b) - scoreOffer(a)),
+    [offers],
+  );
+  const winner = offers.find((offer) => offer.id === selectedOfferId) || ranked[0];
+  const activeStep = stageIndex(stage);
+
+  function startOver() {
+    setStage("request");
+    setOffers(initialOffers);
+    setVisibleEvents(0);
+    setTimeLeft(18);
+    setReceipt(null);
+    setSelectedOfferId(null);
+    setShowAlternatives(false);
+    setRequest("");
+    setRequestId(null);
+  }
+
+  async function interpret() {
+    setInterpreting(true);
+    setError("");
+    const response = await fetch("/api/interpret", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: request }) });
+    const body = await response.json();
+    setInterpreting(false);
+    if (!response.ok) { setError(body.error || "Could not interpret the request."); return; }
+    setInterpretation(body.data);
+    setHotelReference(body.data.destination);
+    const stayDates = datesForTiming(body.data.timing);
+    const hotelParams = new URLSearchParams({ destination: body.data.destination, checkin: stayDates.checkin, checkout: stayDates.checkout, guests: String(body.data.guests), rooms: String(body.data.rooms) });
+    fetch(`/api/hotels?${hotelParams}`).then((hotelResponse) => hotelResponse.json()).then((hotelBody) => {
+      if (!["geoapify", "liteapi"].includes(hotelBody.source) || !Array.isArray(hotelBody.hotels) || hotelBody.hotels.length < 3) return;
+      setHotelSource(hotelBody.source);
+      setHotelReference(hotelBody.reference?.label || body.data.destination);
+      setOffers((current) => current.map((offer, index) => { const livePrice = hotelBody.hotels[index].liveTotal ? Math.round(hotelBody.hotels[index].liveTotal) : offer.price; return ({ ...offer, price: livePrice, openingPrice: livePrice, hotel: hotelBody.hotels[index].name, mark: hotelBody.hotels[index].name.slice(0, 1).toUpperCase(), distance: hotelBody.hotels[index].distanceKm, rating: hotelBody.hotels[index].rating || offer.rating, address: hotelBody.hotels[index].address, latitude: hotelBody.hotels[index].latitude, longitude: hotelBody.hotels[index].longitude, imageUrl: hotelBody.hotels[index].imageUrl, imageSourceUrl: hotelBody.hotels[index].imageSourceUrl, imageProvider: hotelBody.hotels[index].imageProvider }); }));
+    }).catch(() => undefined);
+    const saved = await fetch("/api/requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rawPrompt: request, ...body.data }) });
+    if (saved.ok) { const savedBody = await saved.json(); setRequestId(savedBody.request.id); }
+    setStage("review");
+  }
+
+  async function openAuction() {
+    setStage("bidding");
+    if (!requestId) return;
+    await fetch(`/api/requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "open", offers: offers.map((offer) => ({ merchantId: offer.id, merchantName: offer.hotel, totalMinor: offer.price * 100, benefits: offer.benefits, cancellation: offer.cancellation, distanceKm: offer.distance, score: scoreOffer(offer), selected: false })) }) });
+  }
+
+  async function selectOffer(offer: Offer) {
+    setSelectedOfferId(offer.id);
+    setShowAlternatives(false);
+    if (!requestId) return;
+    await fetch(`/api/requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "selected", selectedMerchantId: offer.id, offers: offers.map((item) => ({ merchantId: item.id, merchantName: item.hotel, totalMinor: item.price * 100, benefits: item.benefits, cancellation: item.cancellation, distanceKm: item.distance, score: scoreOffer(item), selected: item.id === offer.id })) }) });
+  }
+
+  async function pay() {
+    setPaying(true);
+    setError("");
+    const response = await fetch("/api/payment/session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ amount: winner.price, merchant: winner.hotel, requestId }),
+    });
+    const data = await response.json();
+    setPaying(false);
+    if (!response.ok) { setError(data.error || "Payment could not be started."); return; }
+    if (data.mode === "prava") {
+      window.localStorage.setItem("reversecart.pravaSessionId", data.sessionId);
+      window.localStorage.setItem("reversecart.reservationId", data.reservationId);
+      window.location.assign(data.checkoutUrl);
+      return;
+    }
+    setReceipt(data.result);
+    setStage("confirmed");
+  }
+
+  return (
+    <main className="app-shell">
+      <header className="topbar market-topbar">
+        <button className="brand" onClick={startOver} aria-label="ReverseCart home">
+          <Logo />
+        </button>
+        <nav className="stepper" aria-label="Purchase progress">
+          {steps.map((step, index) => (
+            <div className={`step ${index <= activeStep ? "active" : ""}`} key={step.id}>
+              <span>{index + 1}</span>{step.label}
+            </div>
+          ))}
+        </nav>
+        <div className="header-actions"><div className="sandbox-pill"><span /> {paymentMode === "prava" ? "Prava sandbox ready" : paymentMode === "checking" ? "Checking payment" : "Payment demo"}</div><UserMenu /></div>
+      </header>
+
+      {stage === "request" && (
+        <section className="hero page-enter">
+          <div className="eyebrow"><span className="pulse-dot" /> A buyer-first marketplace</div>
+          <h1>Stop searching.<br /><em>Make hotels compete.</em></h1>
+          <p className="hero-copy">Describe the stay you want and set your limit. ReverseCart brings live offers to you, then Prava closes the winner.</p>
+          <div className="composer">
+            <textarea value={request} placeholder={requestHints[hintIndex]} onChange={(event) => setRequest(event.target.value)} aria-label="Describe what you want merchants to compete for" />
+            <div className="composer-footer">
+              <span>↳ Natural language is fine</span>
+              <button className="primary" onClick={interpret} disabled={!request.trim() || interpreting}>
+                {interpreting ? "Structuring request…" : "Create my request"} <b>→</b>
+              </button>
+            </div>
+          </div>
+          {error && <p className="inline-error" role="alert">{error}</p>}
+          <div className="trust-row">
+            <span>✓ No charge until you approve</span>
+            <span>✓ Hard budget limit</span>
+            <span>✓ Offers expire automatically</span>
+          </div>
+          <div className="market-preview" aria-hidden="true">
+            <div className="preview-head"><span className="preview-label">EXAMPLE MARKET</span><b>3 sample offers</b></div>
+            <p>One request. Three hotels compete on price and terms.</p>
+            <div className="ticker"><span>01</span><b>Mora House</b><strong>₹7,600</strong></div>
+            <div className="ticker"><span>02</span><b>Luma Bengaluru</b><strong>+ breakfast</strong></div>
+            <div className="ticker"><span>03</span><b>Soma Residency</b><strong>free cancel</strong></div>
+            <small>Your live market starts empty and moves only after you publish.</small>
+          </div>
+        </section>
+      )}
+
+      {stage === "review" && (
+        <section className="content-page page-enter">
+          <div className="section-heading">
+            <span className="kicker">PURCHASE MANDATE</span>
+            <h2>Here’s what hotels will compete for.</h2>
+            <p>Check the non-negotiables. You stay in control of the budget.</p>
+          </div>
+          <div className="mandate-grid">
+            <div className="mandate-main card">
+              <div className="field wide"><label>Destination</label><strong>{interpretation.destination}</strong><span>{interpretation.required.find((item) => item.toLowerCase().includes("km")) || "Near the venue"}</span></div>
+              <div className="field"><label>Check-in</label><strong>Tonight</strong><span>After 10 PM</span></div>
+              <div className="field"><label>Check-out</label><strong>Tomorrow</strong><span>1 night</span></div>
+              <div className="field"><label>Guests</label><strong>{interpretation.guests} {interpretation.guests === 1 ? "guest" : "guests"}</strong><span>{interpretation.rooms} {interpretation.rooms === 1 ? "room" : "rooms"}</span></div>
+              <div className="field budget"><label>Maximum total</label><strong>{formatINR(interpretation.maxTotalMinor / 100)}</strong><span>Including taxes</span></div>
+              <div className="constraints wide">
+                <label>Must have</label>
+                {interpretation.required.map((item) => <div className="tag required" key={item}>✓ {item}</div>)}
+                <label className="second-label">Nice to have</label>
+                {interpretation.preferred.map((item) => <div className="tag preferred" key={item}>+ {item}</div>)}
+              </div>
+            </div>
+            <aside className="mandate-side card dark-card">
+              <div className="authority-head"><span className="mini-label">BUYER AUTHORITY</span><div className="shield">Guarded by Prava</div></div>
+              <div className="limit-ring"><small>HARD LIMIT</small><strong>{formatINR(interpretation.maxTotalMinor / 100)}</strong><span>One purchase only</span></div>
+              <ul><li><span>Scope</span><b>Hotel reservation</b></li><li><span>Recurring</span><b>Blocked</b></li><li><span>Approval</span><b>Required</b></li><li><span>Expires</span><b>Tonight</b></li></ul>
+            </aside>
+          </div>
+          <div className="actions"><button className="ghost" onClick={() => setStage("request")}>← Edit request</button><button className="primary large" onClick={openAuction}>Invite offers <b>→</b></button></div>
+        </section>
+      )}
+
+      {stage === "bidding" && (
+        <section className="content-page bidding-page page-enter">
+          <div className="auction-head">
+            <div><span className="kicker live"><i /> LIVE AUCTION</span><h2>Hotels are competing for your stay.</h2></div>
+            <div className="timer"><small>OFFERS CLOSE IN</small><strong>00:{String(timeLeft).padStart(2, "0")}</strong></div>
+          </div>
+          <div className="request-strip"><span>Tonight · 1 guest</span><span>Within 5 km</span><span>Late check-in required</span><b>Max ₹8,000</b></div>
+          <div className="auction-layout">
+            <div className="offers-grid">
+              {offers.map((offer) => {
+                const leader = offer.id === winner.id && visibleEvents > 0;
+                return (
+                  <article className={`offer-card ${leader ? "leader" : ""}`} key={offer.id}>
+                    {leader && <div className="leader-label">CURRENT BEST</div>}
+                    {offer.imageUrl ? <div className="hotel-photo"><img src={offer.imageUrl} alt={`${offer.hotel} property`} /><a href={offer.imageSourceUrl} target="_blank" rel="noreferrer">{offer.imageProvider === "liteapi" ? "LiteAPI photo" : offer.imageProvider === "foursquare" ? "Foursquare photo" : "Wikimedia photo"} ↗</a></div> : <div className="hotel-photo hotel-photo-fallback" aria-hidden="true"><span>{offer.mark}</span><small>Verified place · photo unavailable</small></div>}
+                    <div className="hotel-head"><div className="hotel-mark" style={{ background: offer.color }}>{offer.mark}</div><div><h3>{offer.hotel}</h3><span>★ {offer.rating} · {offer.distance} km straight-line</span></div></div>
+                    {offer.address && <p className="hotel-address">{offer.address}</p>}
+                    <div className="offer-price"><small>TOTAL</small><strong>{formatINR(offer.price)}</strong>{offer.price < offer.openingPrice && <span>was {formatINR(offer.openingPrice)}</span>}</div>
+                    <div className="benefits">{offer.benefits.map((benefit) => <span key={benefit}>✓ {benefit}</span>)}</div>
+                    <div className="offer-foot"><span>{offer.cancellation}</span><b>Score {scoreOffer(offer)}</b></div>
+                  </article>
+                );
+              })}
+            </div>
+            <aside className="activity card">
+              <div className="activity-title"><span>Market activity</span><i>live</i></div>
+              <div className="events">
+                {bidEvents.slice(0, visibleEvents).reverse().map((event, index) => (
+                  <div className="event" key={`${event.at}-${event.hotel}`}><span className={index === 0 ? "hot" : ""} /><p><b>{event.hotel}</b> {event.message} {event.price && <strong>{formatINR(event.price)}</strong>}</p><small>just now</small></div>
+                ))}
+                {visibleEvents === 0 && <div className="waiting"><span /><p>Invitations sent to 3 hotels…</p></div>}
+              </div>
+            </aside>
+          </div>
+          <div className="auction-bottom"><p><span /> No money has moved. You’ll approve the winner.</p><button className="ghost solid" onClick={() => setStage("decision")} disabled={visibleEvents < 3}>End bidding now</button></div>
+          <p className="data-attribution">{hotelSource === "liteapi" ? "Hotel identities, photos and date-specific stay prices from LiteAPI sandbox · Negotiated benefits remain simulated." : hotelSource === "geoapify" ? "Real hotel identities and locations from OpenStreetMap via Geoapify · Bid prices and benefits are simulated." : "Hackathon test hotels · Bid prices and benefits are simulated."}</p>
+        </section>
+      )}
+
+      {stage === "decision" && (
+        <section className="content-page decision-page page-enter">
+          <div className="decision-banner"><span>✓</span><div><small>AUCTION COMPLETE</small><h2>We found your best offer.</h2></div><div className="saved"><small>SAVED FROM OPENING BEST</small><strong>₹0</strong></div></div>
+          <div className="decision-layout">
+            <article className="winner-card card">
+              {winner.imageUrl ? <div className="winner-photo"><img src={winner.imageUrl} alt={`${winner.hotel} property`} /><a href={winner.imageSourceUrl} target="_blank" rel="noreferrer">{winner.imageProvider === "liteapi" ? "LiteAPI photo" : winner.imageProvider === "foursquare" ? "Foursquare photo" : "Wikimedia photo"} ↗</a></div> : <div className="winner-photo hotel-photo-fallback" aria-hidden="true"><span>{winner.mark}</span><small>Photo unavailable for this verified place</small></div>}
+              <div className="winner-top"><div className="hotel-mark big" style={{ background: winner.color }}>{winner.mark}</div><div><span className="kicker">{selectedOfferId ? "YOUR SELECTION" : "RECOMMENDED"}</span><h2>{winner.hotel}</h2><p>★ {winner.rating} · {winner.distance} km straight-line from your landmark</p>{winner.address && <small className="winner-address">{winner.address}</small>}</div><div className="winner-price"><small>FINAL TOTAL</small><strong>{formatINR(winner.price)}</strong><span>{formatINR(Math.max(0, interpretation.maxTotalMinor / 100 - winner.price))} under budget</span></div></div>
+              <div className="why"><span className="spark">✦</span><div><h3>{selectedOfferId ? "What you’re choosing" : "Why this offer wins"}</h3><p>This offer ranks strongly across total price, distance to your requested landmark, cancellation flexibility and included benefits. LiteAPI prices are date-specific sandbox rates; negotiated benefits remain simulated.</p></div></div>
+              <div className="inclusions">{winner.benefits.map((benefit) => <span key={benefit}>✓ {benefit}</span>)}<span>✓ {winner.cancellation}</span></div>
+            </article>
+            <aside className="comparison card"><span className="mini-label">THE TRADE-OFF</span><h3>{winner.price > Math.min(...offers.map((offer) => offer.price)) ? `${formatINR(winner.price - Math.min(...offers.map((offer) => offer.price)))} more than the cheapest` : "You chose the lowest price"}</h3><p>Compare price, landmark distance, cancellation and included benefits before approving.</p><div className="compare-row"><span>Cheapest</span><b>{[...offers].sort((a,b) => a.price-b.price)[0].hotel} · {formatINR(Math.min(...offers.map((offer) => offer.price)))}</b></div><div className="compare-row chosen"><span>Selected</span><b>{winner.hotel} · {formatINR(winner.price)}</b></div><button className="text-button offer-toggle" aria-expanded={showAlternatives} onClick={() => setShowAlternatives((shown) => !shown)}>{showAlternatives ? "Hide offers ×" : `Show all ${offers.length} offers +`}</button></aside>
+          </div>
+          {hotelSource !== "fixture" && <section className="location-card card"><div className="location-copy"><span className="kicker">LOCATION CHECK</span><h3>Measured from your requested landmark.</h3><p><b>Reference:</b> {hotelReference}. Distances shown are straight-line estimates; actual driving distance may differ.</p><div><span><i className="reference-dot" /> Requested landmark</span><span><i className="hotel-dot" /> Candidate hotels</span></div></div><img src={`/api/hotels/map?destination=${encodeURIComponent(interpretation.destination)}`} alt={`Map of hotels near ${interpretation.destination}`} /></section>}
+          {showAlternatives && <section className="alternatives card" aria-label="All offers">
+            <div className="alternatives-head"><div><span className="kicker">ALL VALID OFFERS</span><h3>Pick the trade-off you prefer.</h3></div><button className="close-button" aria-label="Close offer list" onClick={() => setShowAlternatives(false)}>×</button></div>
+            <div className="alternative-list">{[...offers].sort((a,b) => a.price-b.price).map((offer) => <article className={`alternative-row ${offer.id === winner.id ? "selected" : ""}`} key={offer.id}><div className="hotel-mark" style={{background:offer.color}}>{offer.mark}</div><div><b>{offer.hotel}</b><span>{offer.distance} km · {offer.benefits.slice(0,2).join(" · ")}</span></div><strong>{formatINR(offer.price)}</strong><button onClick={() => selectOffer(offer)}>{offer.id === winner.id ? "Selected" : "Select"}</button></article>)}</div>
+          </section>}
+          <div className="actions"><button className="ghost solid offer-toggle" aria-expanded={showAlternatives} onClick={() => setShowAlternatives((shown) => !shown)}>{showAlternatives ? "Hide offers ×" : `Show all ${offers.length} offers +`}</button><button className="primary large" onClick={() => setStage("payment")}>Review and pay <b>→</b></button></div>
+        </section>
+      )}
+
+      {stage === "payment" && (
+        <section className="content-page payment-page page-enter">
+          <div className="section-heading centered"><span className="kicker">FINAL APPROVAL</span><h2>You’re authorizing one exact purchase.</h2><p>ReverseCart cannot charge more or create a recurring payment.</p></div>
+          <div className="checkout-layout">
+            <div className="checkout card">
+              <div className="checkout-hotel"><div className="hotel-mark" style={{ background: winner.color }}>{winner.mark}</div><div><h3>{winner.hotel}</h3><p>Tonight → Tomorrow · 1 guest</p></div><b>{formatINR(winner.price)}</b></div>
+              <div className="line"><span>Room and included benefits</span><b>{formatINR(Math.round(winner.price * 0.89))}</b></div><div className="line"><span>Taxes and fees</span><b>{formatINR(winner.price - Math.round(winner.price * 0.89))}</b></div><div className="line total"><span>Total authorization</span><b>{formatINR(winner.price)}</b></div>
+              <div className="policy"><span>✓</span><p><b>Free cancellation until 8 PM</b><br />Late check-in and breakfast are guaranteed by the offer.</p></div>
+            </div>
+            <aside className="pay-card card dark-card">
+              <span className="mini-label">PRAVA PURCHASE MANDATE</span>
+              <div className="pay-amount"><small>YOU WILL PAY</small><strong>{formatINR(winner.price)}</strong></div>
+              <div className="authorization-row"><span>Merchant</span><b>{winner.hotel}</b></div><div className="authorization-row"><span>Maximum allowed</span><b>{formatINR(interpretation.maxTotalMinor / 100)}</b></div><div className="authorization-row"><span>Recurring</span><b>Blocked</b></div><div className="authorization-row"><span>Approval</span><b>Required now</b></div>
+              <button className="pay-button" onClick={pay} disabled={paying}>{paying ? <><i className="spinner" /> Confirming with Prava…</> : <>Approve with Prava <b>→</b></>}</button>
+              <p className="sandbox-note">{paymentMode === "prava" ? "Prava sandbox is ready. Approval opens Prava’s hosted checkout; confirmation follows only after the merchant charge is reported." : "Demo gateway active. Add the Prava sandbox key and public HTTPS callback and merchant endpoints to activate hosted checkout."}</p>
+              {error && <p className="inline-error dark-error" role="alert">{error}</p>}
+            </aside>
+          </div>
+          <button className="ghost back-alone" onClick={() => setStage("decision")}>← Back to recommendation</button>
+        </section>
+      )}
+
+      {stage === "confirmed" && receipt && (
+        <section className="content-page confirmation page-enter">
+          <div className="success-orbit"><span>✓</span></div>
+          <span className="kicker success">PAYMENT VERIFIED</span><h1>Your stay is confirmed.</h1><p>{winner.hotel} has received the reservation and your room is locked in.</p>
+          <div className="receipt card">
+            <div className="receipt-head"><div className="hotel-mark" style={{ background: winner.color }}>{winner.mark}</div><div><h3>{winner.hotel}</h3><span>Tonight → Tomorrow · 1 guest</span></div><strong>{formatINR(winner.price)}</strong></div>
+            <div className="receipt-grid"><div><small>BOOKING REFERENCE</small><b>{receipt.bookingReference}</b></div><div><small>DEMO TRANSACTION</small><b>{receipt.transactionId}</b></div><div><small>STATUS</small><b className="status-confirmed">● Confirmed</b></div><div><small>CONFIRMED AT</small><b>{new Date(receipt.confirmedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</b></div></div>
+            <div className="audit"><span className="done">✓ Request created</span><i /><span className="done">✓ Offer selected</span><i /><span className="done">✓ Payment verified</span><i /><span className="done">✓ Hotel confirmed</span></div>
+          </div>
+          <div className="confirmation-actions"><button className="primary" onClick={startOver}>Start another request</button><a className="ghost solid merchant-link" href={`/merchant/luma?booking=${receipt.bookingReference}&transaction=${receipt.transactionId}&amount=${winner.price}`}>View merchant order ↗</a></div>
+        </section>
+      )}
+
+      <SiteFooter />
+    </main>
+  );
+}
+
+export default function Home() { return <AuthGate><ReverseCartApp /></AuthGate>; }
