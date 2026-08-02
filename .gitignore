@@ -12,3 +12,4 @@ playwright-report/
 
 *.md
 !README.md
+.vercel
