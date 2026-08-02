@@ -94,6 +94,18 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
   }, []);
 
   useEffect(() => {
+    const receivePaymentResult = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "reversecart:payment-confirmed") return;
+      const result = event.data.result as { transactionId?: string; bookingReference?: string; confirmedAt?: string };
+      if (!result?.transactionId || !result?.bookingReference) return;
+      setReceipt({ transactionId: result.transactionId, bookingReference: result.bookingReference, confirmedAt: result.confirmedAt || new Date().toISOString() });
+      setStage("confirmed");
+    };
+    window.addEventListener("message", receivePaymentResult);
+    return () => window.removeEventListener("message", receivePaymentResult);
+  }, []);
+
+  useEffect(() => {
     if (request || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     const timer = window.setInterval(() => setHintIndex((index) => (index + 1) % requestHints.length), 3200);
     return () => window.clearInterval(timer);

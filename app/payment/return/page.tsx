@@ -20,7 +20,15 @@ export default function PaymentReturnPage() {
       attempts += 1;
       const response = await fetch(`/api/payment/status?sessionId=${encodeURIComponent(sessionId)}&reservationId=${encodeURIComponent(reservationId || "")}`, { cache: "no-store" });
       const body = await response.json();
-      if (body.status === "confirmed") { setStatus("confirmed"); setDetails(body); return; }
+      if (body.status === "confirmed") {
+        setStatus("confirmed");
+        setDetails(body);
+        if (window.opener && !window.opener.closed) {
+          window.opener.postMessage({ type: "reversecart:payment-confirmed", result: body }, window.location.origin);
+          window.setTimeout(() => window.close(), 900);
+        }
+        return;
+      }
       if (body.status === "failed" || !response.ok) { setStatus("failed"); setDetails(body); return; }
       if (body.status === "merchant_checkout_required") { setStatus("configuration"); setDetails(body); return; }
       if (attempts < 20) { setStatus("pending"); window.setTimeout(poll, 1500); }
