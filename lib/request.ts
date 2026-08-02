@@ -20,7 +20,7 @@ export const fallbackInterpretation: InterpretedRequest = {
 };
 
 export function destinationFromPrompt(prompt: string, fallback = fallbackInterpretation.destination) {
-  const near = prompt.match(/\bnear\s+(.+?)(?=,?\s+(?:tonight|tomorrow|this\s+weekend|next\s+\w+|under|below|within|with|for\s+\d+\s+(?:guests?|nights?))\b|$)/i)?.[1];
+  const near = prompt.match(/\bnear\s+(.+?)(?=,?\s+(?:tonight|tomorrow|this\s+weekend|next\s+\w+|under|below|within|with|for\s+(?:(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\s+night|\d+\s+(?:guests?|nights?)))\b|$)/i)?.[1];
   if (near) return near.replace(/[,.\s]+$/, "").trim();
   const place = prompt.match(/\b(?:in|at)\s+([A-Z][\w\s.-]+?)(?=,?\s+(?:tonight|tomorrow|this\s+weekend|next\s+\w+|under|below|with|for)\b|$)/)?.[1];
   return place?.replace(/[,.\s]+$/, "").trim() || fallback;

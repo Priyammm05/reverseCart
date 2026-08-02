@@ -48,6 +48,12 @@ function datesForTiming(timing: string) {
     const daysUntilSaturday = (6 - checkin.getDay() + 7) % 7 || 7;
     checkin.setDate(checkin.getDate() + daysUntilSaturday);
   }
+  const weekdays = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const requestedDay = weekdays.findIndex((day) => lower.includes(day));
+  if (requestedDay >= 0) {
+    const daysUntil = (requestedDay - checkin.getDay() + 7) % 7 || 7;
+    checkin.setDate(checkin.getDate() + daysUntil);
+  }
   const checkout = new Date(checkin);
   const nights = Number(lower.match(/(\d+)\s*nights?/)?.[1] || 1);
   checkout.setDate(checkout.getDate() + Math.max(1, nights));
@@ -193,10 +199,10 @@ function ReverseCartApp() {
       const legDates = datesForTiming(leg.timing);
       const params = new URLSearchParams({ destination: leg.destination, checkin: legDates.checkin, checkout: legDates.checkout, guests: String(body.data.guests), rooms: String(body.data.rooms) });
       const hotelBody = await fetch(`/api/hotels?${params}`).then((hotelResponse) => hotelResponse.json());
-      if (!["geoapify", "liteapi"].includes(hotelBody.source) || !Array.isArray(hotelBody.hotels) || hotelBody.hotels.length < 3) return initialOffers.map((offer) => ({ ...offer, id: `${legIndex}-${offer.id}` }));
+      if (!["geoapify", "liteapi"].includes(hotelBody.source) || !Array.isArray(hotelBody.hotels) || hotelBody.hotels.length < 3) return initialOffers.map((offer, index) => ({ ...offer, id: `${legIndex}-${offer.id}`, hotel: `${leg.destination} fallback ${index + 1}`, mark: String(index + 1), dataSource: "fixture" as const }));
       setHotelSource(hotelBody.source);
       if (legIndex === 0) setHotelReference(hotelBody.reference?.label || leg.destination);
-      return initialOffers.map((offer, index) => { const hotel = hotelBody.hotels[index]; const livePrice = hotel.liveTotal ? Math.round(hotel.liveTotal) : offer.price; return ({ ...offer, id: `${legIndex}-${hotel.id || offer.id}`, price: livePrice, openingPrice: livePrice, hotel: hotel.name, mark: hotel.name.slice(0, 1).toUpperCase(), distance: hotel.distanceKm, rating: hotel.rating || offer.rating, address: hotel.address, latitude: hotel.latitude, longitude: hotel.longitude, imageUrl: hotel.imageUrl, imageSourceUrl: hotel.imageSourceUrl, imageProvider: hotel.imageProvider }); });
+      return initialOffers.map((offer, index) => { const hotel = hotelBody.hotels[index]; const livePrice = hotel.liveTotal ? Math.round(hotel.liveTotal) : offer.price; return ({ ...offer, id: `${legIndex}-${hotel.id || offer.id}`, price: livePrice, openingPrice: livePrice, hotel: hotel.name, mark: hotel.name.slice(0, 1).toUpperCase(), distance: hotel.distanceKm, rating: hotel.rating || offer.rating, address: hotel.address, latitude: hotel.latitude, longitude: hotel.longitude, imageUrl: hotel.imageUrl, imageSourceUrl: hotel.imageSourceUrl, imageProvider: hotel.imageProvider, dataSource: hotelBody.source }); });
     })).then((markets) => { setLegOffers(markets); setOffers(markets[0] || initialOffers); }).catch(() => undefined);
     const saved = await fetch("/api/requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rawPrompt: request, ...body.data }) });
     if (saved.ok) { const savedBody = await saved.json(); setRequestId(savedBody.request.id); }
@@ -245,7 +251,7 @@ function ReverseCartApp() {
     return <article className={`offer-card ${leader ? "leader" : ""}`} key={offer.id}>
       {leader && <div className="leader-label">CURRENT BEST</div>}
       {offer.imageUrl ? <div className="hotel-photo"><img src={offer.imageUrl} alt={`${offer.hotel} property`} /><a href={offer.imageSourceUrl} target="_blank" rel="noreferrer">LiteAPI photo ↗</a></div> : <div className="hotel-photo hotel-photo-fallback" aria-hidden="true"><span>{offer.mark}</span><small>Verified hotel · image not supplied</small></div>}
-      <div className="hotel-head"><div className="hotel-mark" style={{ background: offer.color }}>{offer.mark}</div><div><h3>{offer.hotel}</h3><span>★ {offer.rating} · {offer.distance} km straight-line</span></div></div>
+      <div className="hotel-head"><div className="hotel-mark" style={{ background: offer.color }}>{offer.mark}</div><div><h3>{offer.hotel}</h3><span>★ {offer.rating} · {offer.distance} km straight-line</span><small className={`source-badge ${offer.dataSource || "fixture"}`}>{offer.dataSource === "liteapi" ? "LiteAPI sandbox hotel + rate" : offer.dataSource === "geoapify" ? "Geoapify place · simulated rate" : "Simulated fallback offer"}</small></div></div>
       {offer.address && <p className="hotel-address">{offer.address}</p>}
       <div className="offer-price"><small>TOTAL</small><strong>{formatINR(offer.price)}</strong>{offer.price < offer.openingPrice && <span>was {formatINR(offer.openingPrice)}</span>}</div>
       <div className="benefits">{offer.benefits.map((benefit) => <span key={benefit}>✓ {benefit}</span>)}</div>
@@ -368,7 +374,7 @@ function ReverseCartApp() {
           <div className="decision-layout">
             <article className="winner-card card">
               {winner.imageUrl ? <div className="winner-photo"><img src={winner.imageUrl} alt={`${winner.hotel} property`} /><a href={winner.imageSourceUrl} target="_blank" rel="noreferrer">{winner.imageProvider === "liteapi" ? "LiteAPI photo" : winner.imageProvider === "foursquare" ? "Foursquare photo" : "Wikimedia photo"} ↗</a></div> : <div className="winner-photo hotel-photo-fallback" aria-hidden="true"><span>{winner.mark}</span><small>Photo unavailable for this verified place</small></div>}
-              <div className="winner-top"><div className="hotel-mark big" style={{ background: winner.color }}>{winner.mark}</div><div><span className="kicker">{selectedOfferId || selectedLegOfferIds[activeDecisionLeg] ? "YOUR SELECTION" : "RECOMMENDED"}</span><h2>{winner.hotel}</h2><p>★ {winner.rating} · {winner.distance} km straight-line from <b>{tripLegs[activeDecisionLeg]?.destination || interpretation.destination}</b></p>{winner.address && <small className="winner-address">{winner.address}</small>}</div><div className="winner-price"><small>{linkedWinners.length > 1 ? `STOP ${activeDecisionLeg + 1} TOTAL` : "FINAL TOTAL"}</small><strong>{formatINR(winner.price)}</strong></div></div>
+              <div className="winner-top"><div className="hotel-mark big" style={{ background: winner.color }}>{winner.mark}</div><div><span className="kicker">{selectedOfferId || selectedLegOfferIds[activeDecisionLeg] ? "YOUR SELECTION" : "RECOMMENDED"}</span><h2>{winner.hotel}</h2><p>★ {winner.rating} · {winner.distance} km straight-line from <b>{tripLegs[activeDecisionLeg]?.destination || interpretation.destination}</b></p><small className={`source-badge ${winner.dataSource || "fixture"}`}>{winner.dataSource === "liteapi" ? "Hotel identity and date-specific sandbox rate from LiteAPI" : winner.dataSource === "geoapify" ? "Hotel identity from Geoapify · rate simulated" : "Fallback demo hotel and simulated rate"}</small>{winner.address && <small className="winner-address">{winner.address}</small>}</div><div className="winner-price"><small>{linkedWinners.length > 1 ? `STOP ${activeDecisionLeg + 1} TOTAL` : "FINAL TOTAL"}</small><strong>{formatINR(winner.price)}</strong></div></div>
               <div className="why"><span className="spark">✦</span><div><h3>{selectedOfferId || selectedLegOfferIds[activeDecisionLeg] ? "What you’re choosing" : "Why this offer wins"}</h3><p>This offer ranks strongly across total price, straight-line distance from {tripLegs[activeDecisionLeg]?.destination || interpretation.destination}, cancellation flexibility and included benefits. LiteAPI prices are date-specific sandbox rates; negotiated benefits remain simulated.</p></div></div>
               <div className="inclusions">{winner.benefits.map((benefit) => <span key={benefit}>✓ {benefit}</span>)}<span>✓ {winner.cancellation}</span></div>
             </article>
