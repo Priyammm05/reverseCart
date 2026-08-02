@@ -12,6 +12,7 @@ export default function PaymentReturnPage() {
   useEffect(() => {
     const sessionId = window.localStorage.getItem("reversecart.pravaSessionId");
     const reservationId = window.localStorage.getItem("reversecart.reservationId");
+    const requestId = window.localStorage.getItem("reversecart.requestId");
     const savedRequestId = window.localStorage.getItem("reversecart.requestId");
     if (savedRequestId) setReturnHref(`/market/${savedRequestId}`);
     if (!sessionId) { setStatus("failed"); setDetails({ message: "Payment session was not found on this device." }); return; }
@@ -23,7 +24,7 @@ export default function PaymentReturnPage() {
       if (body.status === "confirmed") {
         setStatus("confirmed");
         setDetails(body);
-        window.localStorage.setItem("reversecart.paymentResult", JSON.stringify({ sessionId, result: body, savedAt: Date.now() }));
+        window.localStorage.setItem("reversecart.paymentResult", JSON.stringify({ sessionId, requestId, result: body, savedAt: Date.now() }));
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage({ type: "reversecart:payment-confirmed", result: body }, window.location.origin);
           window.setTimeout(() => window.close(), 900);

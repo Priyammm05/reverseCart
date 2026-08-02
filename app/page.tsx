@@ -133,8 +133,10 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
     const receiveStoredResult = (event: StorageEvent) => {
       if (event.key !== "reversecart.paymentResult" || !event.newValue) return;
       try {
-        const payload = JSON.parse(event.newValue) as { sessionId?: string; result?: { transactionId?: string; bookingReference?: string; confirmedAt?: string } };
-        if (payload.sessionId === window.localStorage.getItem("reversecart.pravaSessionId") && payload.result) applyPaymentResult(payload.result);
+        const payload = JSON.parse(event.newValue) as { sessionId?: string; requestId?: string; result?: { transactionId?: string; bookingReference?: string; confirmedAt?: string } };
+        const resumedRequest = new URLSearchParams(window.location.search).get("resume");
+        const activeRequest = resumedRequest || window.localStorage.getItem("reversecart.requestId");
+        if (payload.sessionId === window.localStorage.getItem("reversecart.pravaSessionId") && payload.requestId === activeRequest && payload.result) applyPaymentResult(payload.result);
       } catch { /* Ignore malformed cross-tab state. */ }
     };
     const consumeStoredResult = () => {
@@ -168,6 +170,21 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
       setRestoreStops((recovered.legs?.length ? recovered.legs : [{ destination: recovered.destination }]).map((leg) => leg.destination));
       setRequest(saved.raw_prompt);
       setRequestId(resumeId);
+      window.localStorage.setItem("reversecart.requestId", resumeId);
+      window.localStorage.removeItem("reversecart.paymentResult");
+      if (saved.status === "payment_pending") {
+        const pendingPayment = body.payments?.find((item: { status?: string; provider_session_id?: string }) => item.status === "pending" && item.provider_session_id);
+        const pendingReservation = body.reservations?.find((item: { status?: string; id?: string }) => item.status === "pending_payment" && item.id);
+        if (pendingPayment?.provider_session_id && pendingReservation?.id) {
+          setActivePaymentSession(pendingPayment.provider_session_id);
+          window.localStorage.setItem("reversecart.pravaSessionId", pendingPayment.provider_session_id);
+          window.localStorage.setItem("reversecart.reservationId", pendingReservation.id);
+        } else {
+          setActivePaymentSession(null);
+          window.localStorage.removeItem("reversecart.pravaSessionId");
+          window.localStorage.removeItem("reversecart.reservationId");
+        }
+      }
       setInterpretation({ destination: destinationFromPrompt(saved.raw_prompt, saved.destination), timing: saved.timing || recovered.timing, guests: recovered.guests, rooms: recovered.rooms, maxTotalMinor: recovered.maxTotalMinor, required: saved.required_constraints?.length ? saved.required_constraints : recovered.required, preferred: saved.preferred_constraints?.length ? saved.preferred_constraints : recovered.preferred, legs: recovered.legs });
       if (Array.isArray(body.offers) && body.offers.length) {
         setOffers(body.offers.map((offer: { merchant_id: string; merchant_name: string; total_minor: number; benefits?: string[]; cancellation?: string; distance_km?: number; selected?: boolean }, index: number) => ({ id: offer.merchant_id, hotel: offer.merchant_name, mark: offer.merchant_name.slice(0, 1).toUpperCase(), color: initialOffers[index % initialOffers.length].color, price: offer.total_minor / 100, openingPrice: offer.total_minor / 100, distance: Number(offer.distance_km || 0), rating: initialOffers[index % initialOffers.length].rating, benefits: offer.benefits || [], cancellation: offer.cancellation || "Terms unavailable", selected: offer.selected })));
