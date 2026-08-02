@@ -42,7 +42,11 @@ export async function GET(request: Request) {
     await persistStatus("confirmed", checkout.transactionId || lineItem.txn_ref_id, `RC-${result.order_id}`);
     return NextResponse.json({ status: "confirmed", transactionId: checkout.transactionId || lineItem.txn_ref_id, bookingReference: `RC-${result.order_id}`, confirmedAt: new Date().toISOString() });
   } catch (error) {
-    if (error instanceof PravaApiError) return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    if (error instanceof PravaApiError) {
+      console.error("[prava-api-error]", { session: sessionId?.slice(-8), status: error.status, code: error.code, message: error.message });
+      return NextResponse.json({ error: error.message, code: error.code }, { status: error.status });
+    }
+    console.error("[payment-status-error]", { session: sessionId?.slice(-8), message: error instanceof Error ? error.message : "Unknown error" });
     return NextResponse.json({ error: "Unable to verify payment." }, { status: 500 });
   }
 
