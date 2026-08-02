@@ -319,6 +319,51 @@ footer { border-color: var(--color-border); padding: var(--space-5) var(--sectio
   color: var(--color-ink);
   font: 700 .875rem var(--font-display);
 }
+
+/* Keep the live market focused on comparable offers, not tall empty columns. */
+.auction-layout { grid-template-columns: minmax(0, 1fr); align-items: start; }
+.offers-grid { display: block; }
+.linked-market > header { display: flex; align-items: baseline; gap: .75rem; margin: 0 0 1rem; }
+.linked-market > header span { color: var(--color-accent-strong); font: 800 .65rem var(--font-mono); letter-spacing: .14em; }
+.linked-market > header h3 { margin: 0; font: 800 1.15rem var(--font-display); }
+.linked-market > header small { color: var(--color-ink-muted); }
+.linked-market + .linked-market { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--color-border); }
+.leg-offer-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .8rem; align-items: start; }
+.linked-summary { display: grid; grid-template-columns: 1fr auto; gap: 1rem; padding: 1.25rem; margin-bottom: 1.25rem; border-top: .45rem solid var(--color-accent); }
+.linked-summary h3 { margin: .3rem 0; font: 800 1.4rem var(--font-display); }
+.linked-summary p { margin: 0; color: var(--color-ink-muted); font-size: .8rem; }
+.linked-summary-total { text-align: right; }
+.linked-summary-total small { display: block; color: var(--color-ink-muted); font-size: .6rem; letter-spacing: .12em; }
+.linked-summary-total strong { display: block; font: 800 1.8rem var(--font-display); }
+.linked-summary-total span { font-size: .7rem; font-weight: 800; }.within-budget { color: var(--color-success); }.over-budget { color: var(--color-market); }
+.linked-summary article { grid-column: 1 / -1; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .75rem; padding-top: .8rem; border-top: 1px solid var(--color-border-soft); }
+.linked-summary article > span { width: 1.8rem; height: 1.8rem; display: grid; place-items: center; border-radius: 50%; background: var(--color-accent-soft); color: var(--color-accent-strong); font-weight: 800; }
+.linked-summary article small,.linked-summary article b { display: block; }
+.linked-summary article small { color: var(--color-ink-muted); }
+.offer-card { height: auto; min-height: 0; padding: 1rem; }
+.hotel-photo { height: 10.5rem; margin-bottom: .85rem; }
+.hotel-photo-fallback {
+  height: 7rem;
+  background:
+    radial-gradient(circle at 18% 20%, rgb(255 255 255 / .8), transparent 24%),
+    linear-gradient(135deg, var(--color-accent-soft), var(--color-market-soft));
+}
+.hotel-photo-fallback span { font-size: 2rem; }
+.hotel-address { display: -webkit-box; min-height: 2.5em; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.offer-price { margin: 1rem 0 .75rem; }
+.benefits { min-height: 0; display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: .75rem; }
+.benefits span { margin: 0; padding: .35rem .55rem; border-radius: var(--radius-round); background: var(--color-success-soft); }
+.activity { width: 100%; }
+.events { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .65rem; max-height: none; padding: .8rem; }
+.event { border: 1px solid var(--color-border-soft); border-radius: var(--radius-2); padding: .75rem; }
+.waiting { grid-column: 1 / -1; padding: 1.5rem; }
+@media (max-width: 48rem) {
+  .hotel-photo { height: 8.5rem; }
+  .events { grid-template-columns: 1fr; }
+  .leg-offer-grid { display: flex; overflow-x: auto; padding: .5rem; margin-inline: -.5rem; scroll-snap-type: x mandatory; }
+  .leg-offer-grid .offer-card { min-width: 78vw; scroll-snap-align: center; }
+  .linked-summary { grid-template-columns: 1fr; }.linked-summary-total { text-align: left; }
+}
 @media (hover: hover) and (pointer: fine) {
   .merchant-order:hover, .merchant-audit:hover { transform: translateY(-.2rem); }
   .merchant-order:hover { box-shadow: 0 1.5rem 3.4rem rgb(16 24 40 / .15), .65rem .65rem 0 var(--color-accent-soft); }

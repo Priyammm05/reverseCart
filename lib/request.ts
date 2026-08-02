@@ -6,6 +6,7 @@ export type InterpretedRequest = {
   maxTotalMinor: number;
   required: string[];
   preferred: string[];
+  legs?: Array<{ destination: string; timing: string }>;
 };
 
 export const fallbackInterpretation: InterpretedRequest = {
@@ -43,5 +44,10 @@ export function interpretFallback(prompt: string): InterpretedRequest {
   if (/free\s+cancell?ation/i.test(prompt)) preferred.push("Free cancellation");
   if (/airport\s+shuttle|free\s+shuttle/i.test(prompt)) preferred.push("Airport shuttle");
   if (/\bwi-?fi\b/i.test(prompt)) preferred.push("Wi-Fi");
-  return { destination: destinationFromPrompt(prompt), timing, guests, rooms, maxTotalMinor: Math.max(1, Math.round(rupees * 100)), required, preferred };
+  const primaryDestination = destinationFromPrompt(prompt);
+  const another = prompt.match(/\b(?:another|then)\s+(?:hotel\s+)?near\s+(.+?)(?=,?\s+(?:on|for|under|with|and\s+(?:a\s+)?combined)\b|$)/i)?.[1]?.replace(/[,.\s]+$/, "").trim();
+  const legs = another && another.toLowerCase() !== primaryDestination.toLowerCase()
+    ? [{ destination: primaryDestination, timing }, { destination: another, timing: "Next stay" }]
+    : [{ destination: primaryDestination, timing }];
+  return { destination: primaryDestination, timing, guests, rooms, maxTotalMinor: Math.max(1, Math.round(rupees * 100)), required, preferred, legs };
 }

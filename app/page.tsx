@@ -60,6 +60,7 @@ function ReverseCartApp() {
   const [request, setRequest] = useState("");
   const [hintIndex, setHintIndex] = useState(0);
   const [offers, setOffers] = useState<Offer[]>(initialOffers);
+  const [legOffers, setLegOffers] = useState<Offer[][]>([]);
   const [visibleEvents, setVisibleEvents] = useState(0);
   const [auctionDuration, setAuctionDuration] = useState(60);
   const [timeLeft, setTimeLeft] = useState(60);
@@ -150,11 +151,16 @@ function ReverseCartApp() {
     [offers],
   );
   const winner = offers.find((offer) => offer.id === selectedOfferId) || ranked[0];
+  const tripLegs = interpretation.legs?.length ? interpretation.legs : [{ destination: interpretation.destination, timing: interpretation.timing }];
+  const linkedWinners = legOffers.length > 1 ? legOffers.map((items) => [...items].sort((a, b) => scoreOffer(b) - scoreOffer(a))[0]) : [winner];
+  const combinedTotal = linkedWinners.reduce((total, offer) => total + (offer?.price || 0), 0);
+  const payableTotal = legOffers.length > 1 ? combinedTotal : winner.price;
   const activeStep = stageIndex(stage);
 
   function startOver() {
     setStage("request");
     setOffers(initialOffers);
+    setLegOffers([]);
     setVisibleEvents(0);
     setAuctionDuration(60);
     setTimeLeft(60);
@@ -176,12 +182,16 @@ function ReverseCartApp() {
     setHotelReference(body.data.destination);
     const stayDates = datesForTiming(body.data.timing);
     const hotelParams = new URLSearchParams({ destination: body.data.destination, checkin: stayDates.checkin, checkout: stayDates.checkout, guests: String(body.data.guests), rooms: String(body.data.rooms) });
-    fetch(`/api/hotels?${hotelParams}`).then((hotelResponse) => hotelResponse.json()).then((hotelBody) => {
-      if (!["geoapify", "liteapi"].includes(hotelBody.source) || !Array.isArray(hotelBody.hotels) || hotelBody.hotels.length < 3) return;
+    const legs = body.data.legs?.length ? body.data.legs : [{ destination: body.data.destination, timing: body.data.timing }];
+    Promise.all(legs.map(async (leg: { destination: string; timing: string }, legIndex: number) => {
+      const legDates = datesForTiming(leg.timing);
+      const params = new URLSearchParams({ destination: leg.destination, checkin: legDates.checkin, checkout: legDates.checkout, guests: String(body.data.guests), rooms: String(body.data.rooms) });
+      const hotelBody = await fetch(`/api/hotels?${params}`).then((hotelResponse) => hotelResponse.json());
+      if (!["geoapify", "liteapi"].includes(hotelBody.source) || !Array.isArray(hotelBody.hotels) || hotelBody.hotels.length < 3) return initialOffers.map((offer) => ({ ...offer, id: `${legIndex}-${offer.id}` }));
       setHotelSource(hotelBody.source);
-      setHotelReference(hotelBody.reference?.label || body.data.destination);
-      setOffers((current) => current.map((offer, index) => { const livePrice = hotelBody.hotels[index].liveTotal ? Math.round(hotelBody.hotels[index].liveTotal) : offer.price; return ({ ...offer, price: livePrice, openingPrice: livePrice, hotel: hotelBody.hotels[index].name, mark: hotelBody.hotels[index].name.slice(0, 1).toUpperCase(), distance: hotelBody.hotels[index].distanceKm, rating: hotelBody.hotels[index].rating || offer.rating, address: hotelBody.hotels[index].address, latitude: hotelBody.hotels[index].latitude, longitude: hotelBody.hotels[index].longitude, imageUrl: hotelBody.hotels[index].imageUrl, imageSourceUrl: hotelBody.hotels[index].imageSourceUrl, imageProvider: hotelBody.hotels[index].imageProvider }); }));
-    }).catch(() => undefined);
+      if (legIndex === 0) setHotelReference(hotelBody.reference?.label || leg.destination);
+      return initialOffers.map((offer, index) => { const hotel = hotelBody.hotels[index]; const livePrice = hotel.liveTotal ? Math.round(hotel.liveTotal) : offer.price; return ({ ...offer, id: `${legIndex}-${hotel.id || offer.id}`, price: livePrice, openingPrice: livePrice, hotel: hotel.name, mark: hotel.name.slice(0, 1).toUpperCase(), distance: hotel.distanceKm, rating: hotel.rating || offer.rating, address: hotel.address, latitude: hotel.latitude, longitude: hotel.longitude, imageUrl: hotel.imageUrl, imageSourceUrl: hotel.imageSourceUrl, imageProvider: hotel.imageProvider }); });
+    })).then((markets) => { setLegOffers(markets); setOffers(markets[0] || initialOffers); }).catch(() => undefined);
     const saved = await fetch("/api/requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rawPrompt: request, ...body.data }) });
     if (saved.ok) { const savedBody = await saved.json(); setRequestId(savedBody.request.id); }
     setStage("review");
@@ -208,7 +218,7 @@ function ReverseCartApp() {
     const response = await fetch("/api/payment/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: winner.price, merchant: winner.hotel, requestId }),
+      body: JSON.stringify({ amount: payableTotal, merchant: linkedWinners.length > 1 ? `Linked trip: ${linkedWinners.map((offer) => offer.hotel).join(" + ")}` : winner.hotel, requestId }),
     });
     const data = await response.json();
     setPaying(false);
@@ -221,6 +231,18 @@ function ReverseCartApp() {
     }
     setReceipt(data.result);
     setStage("confirmed");
+  }
+
+  function renderOfferCard(offer: Offer, leader: boolean) {
+    return <article className={`offer-card ${leader ? "leader" : ""}`} key={offer.id}>
+      {leader && <div className="leader-label">CURRENT BEST</div>}
+      {offer.imageUrl ? <div className="hotel-photo"><img src={offer.imageUrl} alt={`${offer.hotel} property`} /><a href={offer.imageSourceUrl} target="_blank" rel="noreferrer">LiteAPI photo ↗</a></div> : <div className="hotel-photo hotel-photo-fallback" aria-hidden="true"><span>{offer.mark}</span><small>Verified hotel · image not supplied</small></div>}
+      <div className="hotel-head"><div className="hotel-mark" style={{ background: offer.color }}>{offer.mark}</div><div><h3>{offer.hotel}</h3><span>★ {offer.rating} · {offer.distance} km straight-line</span></div></div>
+      {offer.address && <p className="hotel-address">{offer.address}</p>}
+      <div className="offer-price"><small>TOTAL</small><strong>{formatINR(offer.price)}</strong>{offer.price < offer.openingPrice && <span>was {formatINR(offer.openingPrice)}</span>}</div>
+      <div className="benefits">{offer.benefits.map((benefit) => <span key={benefit}>✓ {benefit}</span>)}</div>
+      <div className="offer-foot"><span>{offer.cancellation}</span><b>Score {scoreOffer(offer)}</b></div>
+    </article>;
   }
 
   return (
@@ -279,7 +301,7 @@ function ReverseCartApp() {
           </div>
           <div className="mandate-grid">
             <div className="mandate-main card">
-              <div className="field wide"><label>Destination</label><strong>{interpretation.destination}</strong><span>{interpretation.required.find((item) => item.toLowerCase().includes("km")) || "Near the venue"}</span></div>
+              <div className="field wide"><label>{tripLegs.length > 1 ? "Linked itinerary" : "Destination"}</label><strong>{tripLegs.map((leg) => leg.destination).join(" → ")}</strong><span>{tripLegs.length > 1 ? `${tripLegs.length} hotel markets · one combined budget` : interpretation.required.find((item) => item.toLowerCase().includes("km")) || "Near the venue"}</span></div>
               <div className="field"><label>Check-in</label><strong>Tonight</strong><span>After 10 PM</span></div>
               <div className="field"><label>Check-out</label><strong>Tomorrow</strong><span>1 night</span></div>
               <div className="field"><label>Guests</label><strong>{interpretation.guests} {interpretation.guests === 1 ? "guest" : "guests"}</strong><span>{interpretation.rooms} {interpretation.rooms === 1 ? "room" : "rooms"}</span></div>
@@ -310,27 +332,17 @@ function ReverseCartApp() {
           </div>
           <div className="request-strip"><span>Tonight · 1 guest</span><span>Within 5 km</span><span>Late check-in required</span><b>Max ₹8,000</b></div>
           <div className="auction-layout">
-            <div className="offers-grid">
-              {offers.map((offer) => {
-                const leader = offer.id === winner.id && visibleEvents > 0;
-                return (
-                  <article className={`offer-card ${leader ? "leader" : ""}`} key={offer.id}>
-                    {leader && <div className="leader-label">CURRENT BEST</div>}
-                    {offer.imageUrl ? <div className="hotel-photo"><img src={offer.imageUrl} alt={`${offer.hotel} property`} /><a href={offer.imageSourceUrl} target="_blank" rel="noreferrer">{offer.imageProvider === "liteapi" ? "LiteAPI photo" : offer.imageProvider === "foursquare" ? "Foursquare photo" : "Wikimedia photo"} ↗</a></div> : <div className="hotel-photo hotel-photo-fallback" aria-hidden="true"><span>{offer.mark}</span><small>Verified place · photo unavailable</small></div>}
-                    <div className="hotel-head"><div className="hotel-mark" style={{ background: offer.color }}>{offer.mark}</div><div><h3>{offer.hotel}</h3><span>★ {offer.rating} · {offer.distance} km straight-line</span></div></div>
-                    {offer.address && <p className="hotel-address">{offer.address}</p>}
-                    <div className="offer-price"><small>TOTAL</small><strong>{formatINR(offer.price)}</strong>{offer.price < offer.openingPrice && <span>was {formatINR(offer.openingPrice)}</span>}</div>
-                    <div className="benefits">{offer.benefits.map((benefit) => <span key={benefit}>✓ {benefit}</span>)}</div>
-                    <div className="offer-foot"><span>{offer.cancellation}</span><b>Score {scoreOffer(offer)}</b></div>
-                  </article>
-                );
-              })}
+            <div className={`offers-grid ${legOffers.length > 1 ? "linked-offers" : ""}`}>
+              {(legOffers.length ? legOffers : [offers]).map((market, legIndex) => <section className="linked-market" key={tripLegs[legIndex]?.destination || legIndex}>
+                {legOffers.length > 1 && <header><span>STOP {legIndex + 1}</span><h3>{tripLegs[legIndex]?.destination}</h3><small>{tripLegs[legIndex]?.timing}</small></header>}
+                <div className="leg-offer-grid">{market.map((offer) => renderOfferCard(offer, offer.id === linkedWinners[legIndex]?.id && visibleEvents > 0))}</div>
+              </section>)}
             </div>
             <aside className="activity card">
               <div className="activity-title"><span>Market activity</span><i>live</i></div>
               <div className="events">
                 {bidEvents.slice(0, visibleEvents).reverse().map((event, index) => (
-                  <div className="event" key={`${event.at}-${event.hotel}`}><span className={index === 0 ? "hot" : ""} /><p><b>{event.hotel}</b> {event.message} {event.price && <strong>{formatINR(event.price)}</strong>}</p><small>just now</small></div>
+                  (() => { const offerIndex = initialOffers.findIndex((offer) => offer.hotel === event.hotel); const liveOffer = offers[Math.max(0, offerIndex)]; return <div className="event" key={`${event.at}-${event.hotel}`}><span className={index === 0 ? "hot" : ""} /><p><b>{liveOffer?.hotel || event.hotel}</b> {event.message} {event.price && <strong>{formatINR(liveOffer?.price || event.price)}</strong>}</p><small>just now</small></div>; })()
                 ))}
                 {visibleEvents === 0 && <div className="waiting"><span /><p>Invitations sent to 3 hotels…</p></div>}
               </div>
@@ -344,6 +356,7 @@ function ReverseCartApp() {
       {stage === "decision" && (
         <section className="content-page decision-page page-enter">
           <div className="decision-banner"><span>✓</span><div><small>AUCTION COMPLETE</small><h2>We found your best offer.</h2></div><div className="saved"><small>SAVED FROM OPENING BEST</small><strong>₹0</strong></div></div>
+          {linkedWinners.length > 1 && <section className="linked-summary card"><div><span className="kicker">LINKED TRIP</span><h3>{tripLegs.map((leg) => leg.destination).join(" → ")}</h3><p>One recommended hotel from each city, checked against your combined budget.</p></div><div className="linked-summary-total"><small>COMBINED TOTAL</small><strong>{formatINR(combinedTotal)}</strong><span className={combinedTotal <= interpretation.maxTotalMinor / 100 ? "within-budget" : "over-budget"}>{combinedTotal <= interpretation.maxTotalMinor / 100 ? `${formatINR(interpretation.maxTotalMinor / 100 - combinedTotal)} under budget` : `${formatINR(combinedTotal - interpretation.maxTotalMinor / 100)} over budget`}</span></div>{linkedWinners.map((offer, index) => <article key={offer.id}><span>{index + 1}</span><div><small>{tripLegs[index]?.destination}</small><b>{offer.hotel}</b></div><strong>{formatINR(offer.price)}</strong></article>)}</section>}
           <div className="decision-layout">
             <article className="winner-card card">
               {winner.imageUrl ? <div className="winner-photo"><img src={winner.imageUrl} alt={`${winner.hotel} property`} /><a href={winner.imageSourceUrl} target="_blank" rel="noreferrer">{winner.imageProvider === "liteapi" ? "LiteAPI photo" : winner.imageProvider === "foursquare" ? "Foursquare photo" : "Wikimedia photo"} ↗</a></div> : <div className="winner-photo hotel-photo-fallback" aria-hidden="true"><span>{winner.mark}</span><small>Photo unavailable for this verified place</small></div>}
@@ -358,7 +371,7 @@ function ReverseCartApp() {
             <div className="alternatives-head"><div><span className="kicker">ALL VALID OFFERS</span><h3>Pick the trade-off you prefer.</h3></div><button className="close-button" aria-label="Close offer list" onClick={() => setShowAlternatives(false)}>×</button></div>
             <div className="alternative-list">{[...offers].sort((a,b) => a.price-b.price).map((offer) => <article className={`alternative-row ${offer.id === winner.id ? "selected" : ""}`} key={offer.id}><div className="hotel-mark" style={{background:offer.color}}>{offer.mark}</div><div><b>{offer.hotel}</b><span>{offer.distance} km · {offer.benefits.slice(0,2).join(" · ")}</span></div><strong>{formatINR(offer.price)}</strong><button onClick={() => selectOffer(offer)}>{offer.id === winner.id ? "Selected" : "Select"}</button></article>)}</div>
           </section>}
-          <div className="actions"><button className="ghost solid offer-toggle" aria-expanded={showAlternatives} onClick={() => setShowAlternatives((shown) => !shown)}>{showAlternatives ? "Hide offers ×" : `Show all ${offers.length} offers +`}</button><button className="primary large" onClick={() => setStage("payment")}>Review and pay <b>→</b></button></div>
+          <div className="actions"><button className="ghost solid offer-toggle" aria-expanded={showAlternatives} onClick={() => setShowAlternatives((shown) => !shown)}>{showAlternatives ? "Hide offers ×" : `Show all ${offers.length} offers +`}</button><button className="primary large" onClick={() => setStage("payment")} disabled={payableTotal > interpretation.maxTotalMinor / 100}>{payableTotal > interpretation.maxTotalMinor / 100 ? "Combined total exceeds budget" : "Review and pay"} <b>→</b></button></div>
         </section>
       )}
 
@@ -367,14 +380,14 @@ function ReverseCartApp() {
           <div className="section-heading centered"><span className="kicker">FINAL APPROVAL</span><h2>You’re authorizing one exact purchase.</h2><p>ReverseCart cannot charge more or create a recurring payment.</p></div>
           <div className="checkout-layout">
             <div className="checkout card">
-              <div className="checkout-hotel"><div className="hotel-mark" style={{ background: winner.color }}>{winner.mark}</div><div><h3>{winner.hotel}</h3><p>Tonight → Tomorrow · 1 guest</p></div><b>{formatINR(winner.price)}</b></div>
-              <div className="line"><span>Room and included benefits</span><b>{formatINR(Math.round(winner.price * 0.89))}</b></div><div className="line"><span>Taxes and fees</span><b>{formatINR(winner.price - Math.round(winner.price * 0.89))}</b></div><div className="line total"><span>Total authorization</span><b>{formatINR(winner.price)}</b></div>
+              {linkedWinners.length > 1 ? linkedWinners.map((offer, index) => <div className="checkout-hotel" key={offer.id}><div className="hotel-mark" style={{ background: offer.color }}>{offer.mark}</div><div><h3>{offer.hotel}</h3><p>{tripLegs[index]?.destination} · {tripLegs[index]?.timing}</p></div><b>{formatINR(offer.price)}</b></div>) : <div className="checkout-hotel"><div className="hotel-mark" style={{ background: winner.color }}>{winner.mark}</div><div><h3>{winner.hotel}</h3><p>Tonight → Tomorrow · 1 guest</p></div><b>{formatINR(winner.price)}</b></div>}
+              <div className="line"><span>Rooms and included benefits</span><b>{formatINR(Math.round(payableTotal * 0.89))}</b></div><div className="line"><span>Taxes and fees</span><b>{formatINR(payableTotal - Math.round(payableTotal * 0.89))}</b></div><div className="line total"><span>Total authorization</span><b>{formatINR(payableTotal)}</b></div>
               <div className="policy"><span>✓</span><p><b>Free cancellation until 8 PM</b><br />Late check-in and breakfast are guaranteed by the offer.</p></div>
             </div>
             <aside className="pay-card card dark-card">
               <span className="mini-label">PRAVA PURCHASE MANDATE</span>
-              <div className="pay-amount"><small>YOU WILL PAY</small><strong>{formatINR(winner.price)}</strong></div>
-              <div className="authorization-row"><span>Merchant</span><b>{winner.hotel}</b></div><div className="authorization-row"><span>Maximum allowed</span><b>{formatINR(interpretation.maxTotalMinor / 100)}</b></div><div className="authorization-row"><span>Recurring</span><b>Blocked</b></div><div className="authorization-row"><span>Approval</span><b>Required now</b></div>
+              <div className="pay-amount"><small>YOU WILL PAY</small><strong>{formatINR(payableTotal)}</strong></div>
+              <div className="authorization-row"><span>Purchase</span><b>{linkedWinners.length > 1 ? `${linkedWinners.length} linked stays` : winner.hotel}</b></div><div className="authorization-row"><span>Maximum allowed</span><b>{formatINR(interpretation.maxTotalMinor / 100)}</b></div><div className="authorization-row"><span>Recurring</span><b>Blocked</b></div><div className="authorization-row"><span>Approval</span><b>Required now</b></div>
               <button className="pay-button" onClick={pay} disabled={paying}>{paying ? <><i className="spinner" /> Confirming with Prava…</> : <>Approve with Prava <b>→</b></>}</button>
               <p className="sandbox-note">{paymentMode === "prava" ? "Prava sandbox is ready. Approval opens Prava’s hosted checkout, then a protected test-hotel simulator reports the result. No real hotel is charged or booked." : "Demo gateway active. Add the Prava sandbox key and public HTTPS callback and merchant endpoints to activate hosted checkout."}</p>
               {error && <p className="inline-error dark-error" role="alert">{error}</p>}

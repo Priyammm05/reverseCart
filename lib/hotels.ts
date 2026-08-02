@@ -92,11 +92,17 @@ async function findHotelImage(name: string, foursquareHotel?: { latitude: number
   } catch { return {}; }
 }
 
-async function findLiteHotels(latitude: number, longitude: number) {
+function cityForLiteApi(destination?: string, label?: string) {
+  const text = `${destination || ""} ${label || ""}`;
+  const knownCities = ["Mumbai", "Delhi", "Jaipur", "Hyderabad", "Bengaluru", "Bangalore", "Chennai", "Kolkata", "Pune", "Goa", "Ahmedabad", "Kochi"];
+  return knownCities.find((city) => new RegExp(`\\b${city}\\b`, "i").test(text)) || destination?.split(",").at(-1)?.trim() || "Bengaluru";
+}
+
+async function findLiteHotels(latitude: number, longitude: number, cityName: string) {
   const apiKey = process.env.LITEAPI_KEY;
   if (!apiKey) return [];
   try {
-    const params = new URLSearchParams({ countryCode: "IN", cityName: "Bengaluru", limit: "200" });
+    const params = new URLSearchParams({ countryCode: "IN", cityName: cityName === "Bangalore" ? "Bengaluru" : cityName, limit: "200" });
     const response = await fetch(`https://api.liteapi.travel/v3.0/data/hotels?${params}`, {
       headers: { "X-API-Key": apiKey, Accept: "application/json" }, next: { revalidate: 86400 },
     });
@@ -149,7 +155,7 @@ export async function findNearbyHotels(destination?: string, stay?: { checkin: s
   const geocoded = destination ? await geocodeReference(destination, apiKey) : null;
   const latitude = geocoded?.latitude ?? Number(process.env.REVERSECART_VENUE_LAT || 12.9716);
   const longitude = geocoded?.longitude ?? Number(process.env.REVERSECART_VENUE_LON || 77.5946);
-  const liteHotels = await findLiteHotels(latitude, longitude);
+  const liteHotels = await findLiteHotels(latitude, longitude, cityForLiteApi(destination, geocoded?.label));
   if (liteHotels.length >= 3) {
     const ratedHotels = await addLiteRates(liteHotels, stay);
     const available = ratedHotels.filter((hotel) => hotel.liveTotal).slice(0, 3);
