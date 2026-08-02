@@ -256,7 +256,6 @@ function ReverseCartApp() {
     setError("");
     const checkoutWindow = paymentMode === "prava" ? window.open("", "reversecart-prava-checkout") : null;
     if (checkoutWindow) {
-      checkoutWindow.opener = null;
       checkoutWindow.document.title = "Opening Prava checkout…";
       checkoutWindow.document.body.innerHTML = '<p style="font:600 16px system-ui;padding:32px;color:#111827">Opening secure Prava checkout…</p>';
     }
