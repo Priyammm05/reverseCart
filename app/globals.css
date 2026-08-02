@@ -307,6 +307,18 @@ footer { border-color: var(--color-border); padding: var(--space-5) var(--sectio
 .merchant-event:not(:last-child)::before { background: linear-gradient(var(--color-accent), var(--color-market)); }
 .order-details div { background: var(--color-surface-subtle); }
 .demo-warning { border-left: .35rem solid var(--color-warning); box-shadow: inset 0 1px 0 rgb(255 255 255 / .65); }
+.auction-duration select {
+  display: block;
+  width: 100%;
+  max-width: 12rem;
+  margin: .25rem 0 .4rem;
+  padding: .65rem .75rem;
+  border: 1px solid var(--color-border);
+  border-radius: .65rem;
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  font: 700 .875rem var(--font-display);
+}
 @media (hover: hover) and (pointer: fine) {
   .merchant-order:hover, .merchant-audit:hover { transform: translateY(-.2rem); }
   .merchant-order:hover { box-shadow: 0 1.5rem 3.4rem rgb(16 24 40 / .15), .65rem .65rem 0 var(--color-accent-soft); }

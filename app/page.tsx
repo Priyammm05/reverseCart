@@ -23,6 +23,16 @@ const steps: { id: Stage; label: string }[] = [
   { id: "confirmed", label: "Confirmed" },
 ];
 
+const auctionDurations = [
+  { seconds: 60, label: "1 minute" },
+  { seconds: 120, label: "2 minutes" },
+  { seconds: 300, label: "5 minutes" },
+];
+
+function formatCountdown(seconds: number) {
+  return `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 function stageIndex(stage: Stage) {
   if (stage === "review") return 0;
   if (stage === "decision") return 1;
@@ -51,7 +61,8 @@ function ReverseCartApp() {
   const [hintIndex, setHintIndex] = useState(0);
   const [offers, setOffers] = useState<Offer[]>(initialOffers);
   const [visibleEvents, setVisibleEvents] = useState(0);
-  const [timeLeft, setTimeLeft] = useState(18);
+  const [auctionDuration, setAuctionDuration] = useState(60);
+  const [timeLeft, setTimeLeft] = useState(60);
   const [paying, setPaying] = useState(false);
   const [interpreting, setInterpreting] = useState(false);
   const [interpretation, setInterpretation] = useState<InterpretedRequest>(fallbackInterpretation);
@@ -102,20 +113,22 @@ function ReverseCartApp() {
   useEffect(() => {
     if (stage !== "bidding") return;
     if (timeLeft <= 0) {
+      if (requestId) void fetch(`/api/requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed" }) });
       setStage("decision");
       return;
     }
 
     const timer = window.setTimeout(() => {
-      const elapsed = 18 - timeLeft + 1;
+      const elapsed = auctionDuration - timeLeft + 1;
+      const auctionBeat = Math.ceil((elapsed / auctionDuration) * 18);
       setTimeLeft((value) => value - 1);
-      const nextCount = bidEvents.filter((event) => event.at <= elapsed).length;
+      const nextCount = bidEvents.filter((event) => event.at <= auctionBeat).length;
       setVisibleEvents(nextCount);
 
-      if (elapsed === 8 && hotelSource !== "liteapi") {
+      if (auctionBeat >= 8 && hotelSource !== "liteapi") {
         setOffers((current) => current.map((offer) => (offer.id === "mora" ? { ...offer, price: 7300 } : offer)));
       }
-      if (elapsed === 11) {
+      if (auctionBeat >= 11) {
         setOffers((current) =>
           current.map((offer) =>
             offer.id === "luma" && !offer.benefits.includes("Late checkout")
@@ -124,13 +137,13 @@ function ReverseCartApp() {
           ),
         );
       }
-      if (elapsed === 14 && hotelSource !== "liteapi") {
+      if (auctionBeat >= 14 && hotelSource !== "liteapi") {
         setOffers((current) => current.map((offer) => (offer.id === "luma" ? { ...offer, price: 7600 } : offer)));
       }
-    }, 700);
+    }, 1000);
 
     return () => window.clearTimeout(timer);
-  }, [stage, timeLeft, hotelSource]);
+  }, [stage, timeLeft, hotelSource, auctionDuration, requestId]);
 
   const ranked = useMemo(
     () => [...offers].sort((a, b) => scoreOffer(b) - scoreOffer(a)),
@@ -143,7 +156,8 @@ function ReverseCartApp() {
     setStage("request");
     setOffers(initialOffers);
     setVisibleEvents(0);
-    setTimeLeft(18);
+    setAuctionDuration(60);
+    setTimeLeft(60);
     setReceipt(null);
     setSelectedOfferId(null);
     setShowAlternatives(false);
@@ -174,6 +188,8 @@ function ReverseCartApp() {
   }
 
   async function openAuction() {
+    setTimeLeft(auctionDuration);
+    setVisibleEvents(0);
     setStage("bidding");
     if (!requestId) return;
     await fetch(`/api/requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "open", offers: offers.map((offer) => ({ merchantId: offer.id, merchantName: offer.hotel, totalMinor: offer.price * 100, benefits: offer.benefits, cancellation: offer.cancellation, distanceKm: offer.distance, score: scoreOffer(offer), selected: false })) }) });
@@ -268,6 +284,7 @@ function ReverseCartApp() {
               <div className="field"><label>Check-out</label><strong>Tomorrow</strong><span>1 night</span></div>
               <div className="field"><label>Guests</label><strong>{interpretation.guests} {interpretation.guests === 1 ? "guest" : "guests"}</strong><span>{interpretation.rooms} {interpretation.rooms === 1 ? "room" : "rooms"}</span></div>
               <div className="field budget"><label>Maximum total</label><strong>{formatINR(interpretation.maxTotalMinor / 100)}</strong><span>Including taxes</span></div>
+              <div className="field auction-duration"><label htmlFor="auction-duration">Auction stays live for</label><select id="auction-duration" value={auctionDuration} onChange={(event) => setAuctionDuration(Number(event.target.value))}>{auctionDurations.map((duration) => <option value={duration.seconds} key={duration.seconds}>{duration.label}</option>)}</select><span>Closes automatically · default 1 minute</span></div>
               <div className="constraints wide">
                 <label>Must have</label>
                 {interpretation.required.map((item) => <div className="tag required" key={item}>✓ {item}</div>)}
@@ -289,7 +306,7 @@ function ReverseCartApp() {
         <section className="content-page bidding-page page-enter">
           <div className="auction-head">
             <div><span className="kicker live"><i /> LIVE AUCTION</span><h2>Hotels are competing for your stay.</h2></div>
-            <div className="timer"><small>OFFERS CLOSE IN</small><strong>00:{String(timeLeft).padStart(2, "0")}</strong></div>
+              <div className="timer"><small>OFFERS CLOSE IN</small><strong>{formatCountdown(timeLeft)}</strong></div>
           </div>
           <div className="request-strip"><span>Tonight · 1 guest</span><span>Within 5 km</span><span>Late check-in required</span><b>Max ₹8,000</b></div>
           <div className="auction-layout">
@@ -319,7 +336,7 @@ function ReverseCartApp() {
               </div>
             </aside>
           </div>
-          <div className="auction-bottom"><p><span /> No money has moved. You’ll approve the winner.</p><button className="ghost solid" onClick={() => setStage("decision")} disabled={visibleEvents < 3}>End bidding now</button></div>
+          <div className="auction-bottom"><p><span /> Auction closes automatically after {auctionDurations.find((duration) => duration.seconds === auctionDuration)?.label}. No money has moved.</p><button className="ghost solid" onClick={() => setStage("decision")} disabled={visibleEvents < 3}>End bidding now</button></div>
           <p className="data-attribution">{hotelSource === "liteapi" ? "Hotel identities, photos and date-specific stay prices from LiteAPI sandbox · Negotiated benefits remain simulated." : hotelSource === "geoapify" ? "Real hotel identities and locations from OpenStreetMap via Geoapify · Bid prices and benefits are simulated." : "Hackathon test hotels · Bid prices and benefits are simulated."}</p>
         </section>
       )}
