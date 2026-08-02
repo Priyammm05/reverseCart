@@ -254,6 +254,12 @@ function ReverseCartApp() {
   async function pay() {
     setPaying(true);
     setError("");
+    const checkoutWindow = paymentMode === "prava" ? window.open("", "reversecart-prava-checkout") : null;
+    if (checkoutWindow) {
+      checkoutWindow.opener = null;
+      checkoutWindow.document.title = "Opening Prava checkout…";
+      checkoutWindow.document.body.innerHTML = '<p style="font:600 16px system-ui;padding:32px;color:#111827">Opening secure Prava checkout…</p>';
+    }
     const response = await fetch("/api/payment/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -261,13 +267,15 @@ function ReverseCartApp() {
     });
     const data = await response.json();
     setPaying(false);
-    if (!response.ok) { setError(data.error || "Payment could not be started."); return; }
+    if (!response.ok) { checkoutWindow?.close(); setError(data.error || "Payment could not be started."); return; }
     if (data.mode === "prava") {
       window.localStorage.setItem("reversecart.pravaSessionId", data.sessionId);
       window.localStorage.setItem("reversecart.reservationId", data.reservationId);
-      window.location.assign(data.checkoutUrl);
+      if (checkoutWindow) checkoutWindow.location.replace(data.checkoutUrl);
+      else window.location.assign(data.checkoutUrl);
       return;
     }
+    checkoutWindow?.close();
     setReceipt(data.result);
     setStage("confirmed");
   }
@@ -430,7 +438,7 @@ function ReverseCartApp() {
               <div className="pay-amount"><small>YOU WILL PAY</small><strong>{formatINR(payableTotal)}</strong></div>
               <div className="authorization-row"><span>Purchase</span><b>{linkedWinners.length > 1 ? `${linkedWinners.length} linked stays` : winner.hotel}</b></div><div className="authorization-row"><span>Maximum allowed</span><b>{formatINR(interpretation.maxTotalMinor / 100)}</b></div><div className="authorization-row"><span>Recurring</span><b>Blocked</b></div><div className="authorization-row"><span>Approval</span><b>Required now</b></div>
               <button className="pay-button" onClick={pay} disabled={paying}>{paying ? <><i className="spinner" /> Confirming with Prava…</> : <>Approve with Prava <b>→</b></>}</button>
-              <p className="sandbox-note">{paymentMode === "prava" ? "Prava sandbox is ready. Approval opens Prava’s hosted checkout, then a protected test-hotel simulator reports the result. No real hotel is charged or booked." : "Demo gateway active. Add the Prava sandbox key and public HTTPS callback and merchant endpoints to activate hosted checkout."}</p>
+              <p className="sandbox-note">{paymentMode === "prava" ? "Prava sandbox is ready. Approval opens secure checkout in a new tab, so cancelling leaves this review safely open. No real hotel is charged or booked." : "Demo gateway active. Add the Prava sandbox key and public HTTPS callback and merchant endpoints to activate hosted checkout."}</p>
               {error && <p className="inline-error dark-error" role="alert">{error}</p>}
             </aside>
           </div>
