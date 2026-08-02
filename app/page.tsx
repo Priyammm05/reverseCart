@@ -83,6 +83,8 @@ function ReverseCartApp() {
   const [hotelReference, setHotelReference] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
   const [paymentMode, setPaymentMode] = useState<"checking" | "demo" | "prava">("checking");
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [restoreStops, setRestoreStops] = useState<string[]>(["Stop 1", "Stop 2"]);
 
   useEffect(() => {
     fetch("/api/payment/readiness", { cache: "no-store" })
@@ -100,12 +102,14 @@ function ReverseCartApp() {
   useEffect(() => {
     const resumeId = new URLSearchParams(window.location.search).get("resume");
     if (!resumeId) return;
+    setResumeLoading(true);
     fetch(`/api/requests/${encodeURIComponent(resumeId)}`).then(async (response) => {
       if (!response.ok) throw new Error("Saved draft could not be opened.");
       const body = await response.json();
       const saved = body.request;
       if (!saved) throw new Error("Saved draft was not found.");
       const recovered = interpretFallback(saved.raw_prompt);
+      if ((recovered.legs?.length || 0) > 1) setRestoreStops(recovered.legs!.map((leg) => leg.destination));
       setRequest(saved.raw_prompt);
       setRequestId(resumeId);
       setInterpretation({ destination: destinationFromPrompt(saved.raw_prompt, saved.destination), timing: saved.timing || recovered.timing, guests: recovered.guests, rooms: recovered.rooms, maxTotalMinor: recovered.maxTotalMinor, required: saved.required_constraints?.length ? saved.required_constraints : recovered.required, preferred: saved.preferred_constraints?.length ? saved.preferred_constraints : recovered.preferred });
@@ -130,11 +134,13 @@ function ReverseCartApp() {
           }));
           setLegOffers(markets);
           setOffers(markets[0]);
-        }).catch(() => undefined);
+        }).catch(() => undefined).finally(() => setResumeLoading(false));
+      } else {
+        setResumeLoading(false);
       }
       setStage(saved.status === "selected" || saved.status === "payment_pending" || saved.status === "closed" ? "decision" : saved.status === "open" ? "bidding" : "review");
       window.history.replaceState({}, "", "/");
-    }).catch((cause) => setError(cause.message));
+    }).catch((cause) => { setError(cause.message); setResumeLoading(false); });
   }, []);
 
   useEffect(() => {
@@ -277,6 +283,8 @@ function ReverseCartApp() {
       <div className="offer-foot"><span>{offer.cancellation}</span><b>Score {scoreOffer(offer)}</b></div>
     </article>;
   }
+
+  if (resumeLoading) return <main className="app-shell"><header className="topbar market-topbar"><span className="brand"><Logo /></span><nav className="stepper" aria-label="Purchase progress"><div className="step active"><span>1</span>Request</div><div className="step active"><span>2</span>Offers</div><div className="step"><span>3</span>Payment</div><div className="step"><span>4</span>Confirmed</div></nav><div className="header-actions"><div className="sandbox-pill"><span /> Prava sandbox ready</div><UserMenu /></div></header><section className="restore-market"><div className="restore-orbit"><i /></div><span className="kicker">MARKET COMPLETE</span><h1>Restoring your completed market…</h1><p>Refreshing city results, hotel photos, rates and distance references.</p><div className="restore-stops">{restoreStops.map((stop, index) => <span key={stop}>{index > 0 && <b>→</b>}{stop}</span>)}</div></section><SiteFooter /></main>;
 
   return (
     <main className="app-shell">

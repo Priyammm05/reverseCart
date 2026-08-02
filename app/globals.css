@@ -345,6 +345,12 @@ footer { border-color: var(--color-border); padding: var(--space-5) var(--sectio
 .source-badge.geoapify { background: var(--color-accent-soft); color: var(--color-accent-strong); }
 .source-badge.fixture { background: var(--color-warning-soft); color: var(--color-warning-strong); }
 .winner-address { display: block; margin-top: .4rem; }
+.restore-market { flex: 1; display: grid; place-items: center; align-content: center; gap: .8rem; width: min(42rem, 90vw); margin: auto; padding: 4rem 0; text-align: center; }
+.restore-market h1 { margin: 0; font: 800 clamp(2.2rem, 6vw, 4.2rem)/1 var(--font-display); letter-spacing: -.05em; }.restore-market p { margin: 0; color: var(--color-ink-muted); }
+.restore-orbit { width: 5rem; height: 5rem; display: grid; place-items: center; border: 1px solid var(--color-accent); border-radius: 50%; box-shadow: 0 0 0 .75rem var(--color-accent-soft); }
+.restore-orbit i { width: 2rem; height: 2rem; border: .22rem solid var(--color-border); border-top-color: var(--color-accent); border-radius: 50%; animation: spin .8s linear infinite; }
+.restore-stops { display: flex; align-items: center; gap: .7rem; margin-top: .75rem; }.restore-stops span { padding: .5rem .8rem; border-radius: var(--radius-round); background: var(--color-surface-raised); border: 1px solid var(--color-border); font-weight: 800; }
+.compare-row { gap: .8rem; align-items: flex-start; }.compare-row b { max-width: 70%; text-align: right; overflow-wrap: anywhere; }
 .offer-card { height: auto; min-height: 0; padding: 1rem; }
 .hotel-photo { height: 10.5rem; margin-bottom: .85rem; }
 .hotel-photo-fallback {
