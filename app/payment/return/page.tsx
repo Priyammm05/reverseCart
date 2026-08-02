@@ -23,6 +23,7 @@ export default function PaymentReturnPage() {
       if (body.status === "confirmed") {
         setStatus("confirmed");
         setDetails(body);
+        window.localStorage.setItem("reversecart.paymentResult", JSON.stringify({ sessionId, result: body, savedAt: Date.now() }));
         if (window.opener && !window.opener.closed) {
           window.opener.postMessage({ type: "reversecart:payment-confirmed", result: body }, window.location.origin);
           window.setTimeout(() => window.close(), 900);

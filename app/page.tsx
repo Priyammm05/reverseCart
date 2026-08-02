@@ -94,15 +94,33 @@ function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
   }, []);
 
   useEffect(() => {
-    const receivePaymentResult = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.data?.type !== "reversecart:payment-confirmed") return;
-      const result = event.data.result as { transactionId?: string; bookingReference?: string; confirmedAt?: string };
+    const applyPaymentResult = (result: { transactionId?: string; bookingReference?: string; confirmedAt?: string }) => {
       if (!result?.transactionId || !result?.bookingReference) return;
       setReceipt({ transactionId: result.transactionId, bookingReference: result.bookingReference, confirmedAt: result.confirmedAt || new Date().toISOString() });
       setStage("confirmed");
+      window.localStorage.removeItem("reversecart.paymentResult");
+    };
+    const receivePaymentResult = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin || event.data?.type !== "reversecart:payment-confirmed") return;
+      applyPaymentResult(event.data.result);
+    };
+    const receiveStoredResult = (event: StorageEvent) => {
+      if (event.key !== "reversecart.paymentResult" || !event.newValue) return;
+      try {
+        const payload = JSON.parse(event.newValue) as { sessionId?: string; result?: { transactionId?: string; bookingReference?: string; confirmedAt?: string } };
+        if (payload.sessionId === window.localStorage.getItem("reversecart.pravaSessionId") && payload.result) applyPaymentResult(payload.result);
+      } catch { /* Ignore malformed cross-tab state. */ }
+    };
+    const consumeStoredResult = () => {
+      const stored = window.localStorage.getItem("reversecart.paymentResult");
+      if (!stored) return;
+      receiveStoredResult({ key: "reversecart.paymentResult", newValue: stored } as StorageEvent);
     };
     window.addEventListener("message", receivePaymentResult);
-    return () => window.removeEventListener("message", receivePaymentResult);
+    window.addEventListener("storage", receiveStoredResult);
+    window.addEventListener("focus", consumeStoredResult);
+    consumeStoredResult();
+    return () => { window.removeEventListener("message", receivePaymentResult); window.removeEventListener("storage", receiveStoredResult); window.removeEventListener("focus", consumeStoredResult); };
   }, []);
 
   useEffect(() => {
