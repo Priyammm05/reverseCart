@@ -18,6 +18,9 @@ export async function POST(request: Request) {
   if (!body.rawPrompt || !body.destination || !body.timing || !body.guests || !body.rooms || !body.maxTotalMinor) return NextResponse.json({ error: "Invalid purchase request." }, { status: 400 });
   if (process.env.PLAYWRIGHT_BYPASS_AUTH === "1") return NextResponse.json({ request: { id: "playwright-request", user_id: user.id, ...body } }, { status: 201 });
   const supabase = await createClient();
+  const duplicateWindow = new Date(Date.now() - 60_000).toISOString();
+  const { data: existing } = await supabase.from("purchase_requests").select("*").eq("user_id", user.id).eq("raw_prompt", body.rawPrompt).gte("created_at", duplicateWindow).order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (existing) return NextResponse.json({ request: existing, deduplicated: true }, { status: 200 });
   const { data, error } = await supabase.from("purchase_requests").insert({ user_id: user.id, raw_prompt: body.rawPrompt, destination: body.destination, timing: body.timing, guests: body.guests, rooms: body.rooms, max_total_minor: body.maxTotalMinor, required_constraints: body.required || [], preferred_constraints: body.preferred || [], status: "draft" }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ request: data }, { status: 201 });

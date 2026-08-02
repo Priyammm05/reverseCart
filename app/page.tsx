@@ -114,7 +114,7 @@ function ReverseCartApp() {
         const selected = body.offers.find((offer: { selected?: boolean }) => offer.selected);
         if (selected) setSelectedOfferId(selected.merchant_id);
       }
-      setStage(saved.status === "selected" || saved.status === "payment_pending" ? "decision" : saved.status === "open" || saved.status === "closed" ? "bidding" : "review");
+      setStage(saved.status === "selected" || saved.status === "payment_pending" || saved.status === "closed" ? "decision" : saved.status === "open" ? "bidding" : "review");
       window.history.replaceState({}, "", "/");
     }).catch((cause) => setError(cause.message));
   }, []);
