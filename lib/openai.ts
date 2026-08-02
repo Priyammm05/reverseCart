@@ -10,7 +10,7 @@ export async function interpretRequest(prompt: string): Promise<{ data: Interpre
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: process.env.OPENAI_MODEL || "gpt-5-mini",
-      input: [{ role: "system", content: "Extract a hotel purchase request. Never increase or invent the user's budget. Return only schema-valid data." }, { role: "user", content: prompt }],
+      input: [{ role: "system", content: "Extract a hotel purchase request. maxTotalMinor is Indian paise: multiply a rupee budget by 100 (for example ₹12,000 becomes 1200000). Never increase or invent the user's budget. Return only schema-valid data." }, { role: "user", content: prompt }],
       text: {
         format: {
           type: "json_schema",
@@ -33,6 +33,11 @@ export async function interpretRequest(prompt: string): Promise<{ data: Interpre
   const body = (await response.json()) as { output_text?: string; output?: Array<{ content?: Array<{ text?: string }> }> };
   const outputText = body.output_text || body.output?.flatMap((item) => item.content || []).map((item) => item.text || "").join("");
   if (!outputText) return { data: fallback, source: "fallback" };
-  try { return { data: JSON.parse(outputText) as InterpretedRequest, source: "openai" }; }
+  try {
+    const parsed = JSON.parse(outputText) as InterpretedRequest;
+    // The deterministic parser is the authority for money so an LLM can never
+    // raise the mandate or confuse rupees with paise.
+    return { data: { ...parsed, maxTotalMinor: fallback.maxTotalMinor }, source: "openai" };
+  }
   catch { return { data: fallback, source: "fallback" }; }
 }
