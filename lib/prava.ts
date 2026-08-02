@@ -59,6 +59,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export async function createPravaSession(input: {
   amountMinor: number;
   merchant: string;
+  itemDescription?: string;
   externalOrderRef: string;
 }) {
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
@@ -86,7 +87,7 @@ export async function createPravaSession(input: {
           category: "Hotels and lodging",
         },
         product_details: [{
-          description: "One-night hotel reservation",
+          description: input.itemDescription || "Hotel reservation",
           unit_price: (input.amountMinor / 100).toFixed(2),
           quantity: 1,
           product_id: "luma-one-night",

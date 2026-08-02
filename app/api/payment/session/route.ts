@@ -6,7 +6,7 @@ import { createClient, currentUser } from "@/lib/supabase/server";
 export async function POST(request: Request) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-  const body = (await request.json()) as { amount?: number; merchant?: string; requestId?: string };
+  const body = (await request.json()) as { amount?: number; merchant?: string; itemDescription?: string; requestId?: string };
   if (!body.amount || !body.merchant || !body.requestId || body.amount <= 0 || body.amount > 500000) return NextResponse.json({ error: "Invalid payment request." }, { status: 400 });
 
   let reservationId = "playwright-reservation";
@@ -33,8 +33,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const externalOrderRef = `RC-${crypto.randomUUID()}`;
-    const session = await createPravaSession({ amountMinor: body.amount * 100, merchant: body.merchant, externalOrderRef });
+    const externalOrderRef = `RC-${Date.now().toString(36).toUpperCase()}-${crypto.randomUUID().slice(0, 4).toUpperCase()}`;
+    const session = await createPravaSession({ amountMinor: body.amount * 100, merchant: body.merchant, itemDescription: body.itemDescription?.slice(0, 64), externalOrderRef });
     if (process.env.PLAYWRIGHT_BYPASS_AUTH !== "1") {
       const supabase = await createClient();
       await supabase.from("payment_events").insert({ user_id: user.id, request_id: body.requestId, reservation_id: reservationId, provider: "prava", provider_session_id: session.session_id, amount_minor: body.amount * 100, status: "pending" });

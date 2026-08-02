@@ -257,7 +257,7 @@ function ReverseCartApp() {
     const response = await fetch("/api/payment/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount: payableTotal, merchant: linkedWinners.length > 1 ? `Linked trip: ${linkedWinners.map((offer) => offer.hotel).join(" + ")}` : winner.hotel, requestId }),
+      body: JSON.stringify({ amount: payableTotal, merchant: linkedWinners.length > 1 ? "ReverseCart Hotels" : winner.hotel.slice(0, 48), itemDescription: linkedWinners.length > 1 ? `${linkedWinners.length} linked hotel stays` : "One-night hotel reservation", requestId }),
     });
     const data = await response.json();
     setPaying(false);
