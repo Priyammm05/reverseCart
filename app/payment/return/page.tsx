@@ -2,15 +2,18 @@
 
 import { useEffect, useState } from "react";
 
-type Status = "checking" | "pending" | "confirmed" | "failed" | "configuration";
+type Status = "checking" | "pending" | "confirmed" | "failed" | "cancelled" | "configuration";
 
 export default function PaymentReturnPage() {
   const [status, setStatus] = useState<Status>("checking");
   const [details, setDetails] = useState<{ transactionId?: string; bookingReference?: string; message?: string }>({});
+  const [returnHref, setReturnHref] = useState("/");
 
   useEffect(() => {
     const sessionId = window.localStorage.getItem("reversecart.pravaSessionId");
     const reservationId = window.localStorage.getItem("reversecart.reservationId");
+    const savedRequestId = window.localStorage.getItem("reversecart.requestId");
+    if (savedRequestId) setReturnHref(`/market/${savedRequestId}`);
     if (!sessionId) { setStatus("failed"); setDetails({ message: "Payment session was not found on this device." }); return; }
     let attempts = 0;
     const poll = async () => {
@@ -21,16 +24,16 @@ export default function PaymentReturnPage() {
       if (body.status === "failed" || !response.ok) { setStatus("failed"); setDetails(body); return; }
       if (body.status === "merchant_checkout_required") { setStatus("configuration"); setDetails(body); return; }
       if (attempts < 20) { setStatus("pending"); window.setTimeout(poll, 1500); }
-      else { setStatus("failed"); setDetails({ message: "Verification timed out. Check the Prava dashboard before retrying." }); }
+      else { setStatus("cancelled"); setDetails({ message: "Checkout was not completed and no booking was confirmed. You can safely return to your market and try again." }); }
     };
     void poll();
   }, []);
 
   return <main className="app-shell"><section className="content-page confirmation page-enter">
-    <div className="success-orbit"><span>{status === "confirmed" ? "✓" : status === "failed" ? "!" : "…"}</span></div>
+    <div className="success-orbit"><span>{status === "confirmed" ? "✓" : status === "failed" || status === "cancelled" ? "!" : "…"}</span></div>
     <span className="kicker">PRAVA PAYMENT</span>
-    <h1>{status === "confirmed" ? "Your stay is confirmed." : status === "failed" ? "Payment was not confirmed." : status === "configuration" ? "Merchant checkout needs configuration." : "Verifying your payment…"}</h1>
+    <h1>{status === "confirmed" ? "Your stay is confirmed." : status === "cancelled" ? "Checkout cancelled." : status === "failed" ? "Payment was not confirmed." : status === "configuration" ? "Merchant checkout needs configuration." : "Verifying your payment…"}</h1>
     <p>{details.message || (status === "confirmed" ? `Booking ${details.bookingReference} · Transaction ${details.transactionId}` : "Keep this page open while ReverseCart verifies the transaction server-side.")}</p>
-    <div className="confirmation-actions"><a className="primary merchant-link" href="/">Return to ReverseCart</a></div>
+    <div className="confirmation-actions"><a className="primary merchant-link" href={returnHref}>Return to your market</a></div>
   </section></main>;
 }

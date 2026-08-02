@@ -61,7 +61,7 @@ function datesForTiming(timing: string) {
   return { checkin: iso(checkin), checkout: iso(checkout) };
 }
 
-function ReverseCartApp() {
+function ReverseCartApp({ resumeId: resumeIdProp }: { resumeId?: string }) {
   const [stage, setStage] = useState<Stage>("request");
   const [request, setRequest] = useState("");
   const [hintIndex, setHintIndex] = useState(0);
@@ -83,8 +83,8 @@ function ReverseCartApp() {
   const [hotelReference, setHotelReference] = useState("");
   const [requestId, setRequestId] = useState<string | null>(null);
   const [paymentMode, setPaymentMode] = useState<"checking" | "demo" | "prava">("checking");
-  const [resumeLoading, setResumeLoading] = useState(false);
-  const [restoreStops, setRestoreStops] = useState<string[]>(["Stop 1", "Stop 2"]);
+  const [resumeLoading, setResumeLoading] = useState(Boolean(resumeIdProp));
+  const [restoreStops, setRestoreStops] = useState<string[]>(["Market"]);
 
   useEffect(() => {
     fetch("/api/payment/readiness", { cache: "no-store" })
@@ -100,7 +100,7 @@ function ReverseCartApp() {
   }, [request]);
 
   useEffect(() => {
-    const resumeId = new URLSearchParams(window.location.search).get("resume");
+    const resumeId = resumeIdProp || new URLSearchParams(window.location.search).get("resume");
     if (!resumeId) return;
     setResumeLoading(true);
     fetch(`/api/requests/${encodeURIComponent(resumeId)}`).then(async (response) => {
@@ -109,10 +109,10 @@ function ReverseCartApp() {
       const saved = body.request;
       if (!saved) throw new Error("Saved draft was not found.");
       const recovered = interpretFallback(saved.raw_prompt);
-      if ((recovered.legs?.length || 0) > 1) setRestoreStops(recovered.legs!.map((leg) => leg.destination));
+      setRestoreStops((recovered.legs?.length ? recovered.legs : [{ destination: recovered.destination }]).map((leg) => leg.destination));
       setRequest(saved.raw_prompt);
       setRequestId(resumeId);
-      setInterpretation({ destination: destinationFromPrompt(saved.raw_prompt, saved.destination), timing: saved.timing || recovered.timing, guests: recovered.guests, rooms: recovered.rooms, maxTotalMinor: recovered.maxTotalMinor, required: saved.required_constraints?.length ? saved.required_constraints : recovered.required, preferred: saved.preferred_constraints?.length ? saved.preferred_constraints : recovered.preferred });
+      setInterpretation({ destination: destinationFromPrompt(saved.raw_prompt, saved.destination), timing: saved.timing || recovered.timing, guests: recovered.guests, rooms: recovered.rooms, maxTotalMinor: recovered.maxTotalMinor, required: saved.required_constraints?.length ? saved.required_constraints : recovered.required, preferred: saved.preferred_constraints?.length ? saved.preferred_constraints : recovered.preferred, legs: recovered.legs });
       if (Array.isArray(body.offers) && body.offers.length) {
         setOffers(body.offers.map((offer: { merchant_id: string; merchant_name: string; total_minor: number; benefits?: string[]; cancellation?: string; distance_km?: number; selected?: boolean }, index: number) => ({ id: offer.merchant_id, hotel: offer.merchant_name, mark: offer.merchant_name.slice(0, 1).toUpperCase(), color: initialOffers[index % initialOffers.length].color, price: offer.total_minor / 100, openingPrice: offer.total_minor / 100, distance: Number(offer.distance_km || 0), rating: initialOffers[index % initialOffers.length].rating, benefits: offer.benefits || [], cancellation: offer.cancellation || "Terms unavailable", selected: offer.selected })));
         const selected = body.offers.find((offer: { selected?: boolean }) => offer.selected);
@@ -138,10 +138,21 @@ function ReverseCartApp() {
       } else {
         setResumeLoading(false);
       }
-      setStage(saved.status === "selected" || saved.status === "payment_pending" || saved.status === "closed" ? "decision" : saved.status === "open" ? "bidding" : "review");
-      window.history.replaceState({}, "", "/");
+      if (saved.status === "open") {
+        const storedAuction = window.localStorage.getItem(`reversecart.auction.${resumeId}`);
+        const auction = storedAuction ? JSON.parse(storedAuction) as { endsAt?: number; duration?: number } : null;
+        const remaining = Math.max(0, Math.ceil(((auction?.endsAt || new Date(saved.updated_at).getTime() + 60_000) - Date.now()) / 1000));
+        setAuctionDuration(auction?.duration || 60);
+        setTimeLeft(remaining);
+        if (remaining > 0) setStage("bidding");
+        else {
+          setStage("decision");
+          void fetch(`/api/requests/${resumeId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "closed" }) });
+        }
+      } else setStage(saved.status === "selected" || saved.status === "payment_pending" || saved.status === "closed" ? "decision" : "review");
+      window.history.replaceState({}, "", `/market/${resumeId}`);
     }).catch((cause) => { setError(cause.message); setResumeLoading(false); });
-  }, []);
+  }, [resumeIdProp]);
 
   useEffect(() => {
     if (stage !== "bidding") return;
@@ -229,7 +240,7 @@ function ReverseCartApp() {
       return initialOffers.map((offer, index) => { const hotel = hotelBody.hotels[index]; const livePrice = hotel.liveTotal ? Math.round(hotel.liveTotal) : offer.price; return ({ ...offer, id: `${legIndex}-${hotel.id || offer.id}`, price: livePrice, openingPrice: livePrice, hotel: hotel.name, mark: hotel.name.slice(0, 1).toUpperCase(), distance: hotel.distanceKm, rating: hotel.rating || offer.rating, address: hotel.address, latitude: hotel.latitude, longitude: hotel.longitude, imageUrl: hotel.imageUrl, imageSourceUrl: hotel.imageSourceUrl, imageProvider: hotel.imageProvider, dataSource: hotelBody.source }); });
     })).then((markets) => { setLegOffers(markets); setOffers(markets[0] || initialOffers); }).catch(() => undefined);
     const saved = await fetch("/api/requests", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rawPrompt: request, ...body.data }) });
-    if (saved.ok) { const savedBody = await saved.json(); setRequestId(savedBody.request.id); }
+    if (saved.ok) { const savedBody = await saved.json(); setRequestId(savedBody.request.id); window.history.replaceState({}, "", `/market/${savedBody.request.id}`); }
     setStage("review");
   }
 
@@ -238,6 +249,7 @@ function ReverseCartApp() {
     setVisibleEvents(0);
     setStage("bidding");
     if (!requestId) return;
+    window.localStorage.setItem(`reversecart.auction.${requestId}`, JSON.stringify({ endsAt: Date.now() + auctionDuration * 1000, duration: auctionDuration }));
     const allOffers = legOffers.length > 1 ? legOffers.flat() : offers;
     await fetch(`/api/requests/${requestId}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "open", offers: allOffers.map((offer) => ({ merchantId: offer.id, merchantName: offer.hotel, totalMinor: offer.price * 100, benefits: offer.benefits, cancellation: offer.cancellation, distanceKm: offer.distance, score: scoreOffer(offer), selected: false })) }) });
   }
@@ -270,6 +282,7 @@ function ReverseCartApp() {
     if (data.mode === "prava") {
       window.localStorage.setItem("reversecart.pravaSessionId", data.sessionId);
       window.localStorage.setItem("reversecart.reservationId", data.reservationId);
+      window.localStorage.setItem("reversecart.requestId", requestId || "");
       if (checkoutWindow) checkoutWindow.location.replace(data.checkoutUrl);
       else window.location.assign(data.checkoutUrl);
       return;
@@ -463,4 +476,4 @@ function ReverseCartApp() {
   );
 }
 
-export default function Home() { return <AuthGate><ReverseCartApp /></AuthGate>; }
+export default function Home({ searchParams }: { searchParams?: { resume?: string } }) { return <AuthGate><ReverseCartApp resumeId={searchParams?.resume} /></AuthGate>; }
