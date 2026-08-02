@@ -19,6 +19,7 @@ export type Offer = {
   imageSourceUrl?: string;
   imageProvider?: "liteapi" | "foursquare" | "wikimedia";
   dataSource?: "liteapi" | "geoapify" | "fixture";
+  rateSource?: "liteapi" | "simulated";
 };
 
 export type BidEvent = {
@@ -41,6 +42,7 @@ export const initialOffers: Offer[] = [
     benefits: ["Late check-in", "Free Wi-Fi"],
     cancellation: "Non-refundable",
     dataSource: "fixture",
+    rateSource: "simulated",
   },
   {
     id: "luma",
@@ -54,6 +56,7 @@ export const initialOffers: Offer[] = [
     benefits: ["Late check-in", "Breakfast included"],
     cancellation: "Free until 8 PM",
     dataSource: "fixture",
+    rateSource: "simulated",
   },
   {
     id: "soma",
@@ -67,6 +70,7 @@ export const initialOffers: Offer[] = [
     benefits: ["Late check-in", "Free cancellation"],
     cancellation: "Free until 10 PM",
     dataSource: "fixture",
+    rateSource: "simulated",
   },
 ];
 
