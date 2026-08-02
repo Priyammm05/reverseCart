@@ -8,11 +8,14 @@ export type PravaSession = {
   expires_at: string;
 };
 
-type PravaLineItem = {
+export type PravaLineItem = {
   txn_ref_id: string;
   merchant_name: string | null;
   total_amount: string;
-  status: "pending" | "awaiting_result" | "completed" | "failed";
+  // Prava's dashboard currently labels credential-ready attempts as
+  // `Creds_Generated`; tolerate provider status additions without losing the
+  // strongly typed states documented by the API.
+  status: "pending" | "awaiting_result" | "creds_generated" | "completed" | "failed" | string;
   token: string | null;
   dynamic_cvv: string | null;
   expiry_month: string | null;
@@ -22,7 +25,7 @@ type PravaLineItem = {
 export type PravaPaymentResult = {
   session_id: string;
   order_id: string | null;
-  status: "pending" | "awaiting_result" | "completed" | "failed";
+  status: "pending" | "awaiting_result" | "creds_generated" | "completed" | "failed" | string;
   transactions: Array<{ txn_id: string; status: string; line_items: PravaLineItem[] }>;
 };
 

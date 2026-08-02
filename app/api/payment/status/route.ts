@@ -11,16 +11,29 @@ export async function GET(request: Request) {
   if (!sessionId || !/^sess?_[-a-zA-Z0-9]+$/.test(sessionId)) return NextResponse.json({ error: "Invalid session." }, { status: 400 });
   try {
     const result = await getPravaPaymentResult(sessionId);
-    if (result.status === "pending") return NextResponse.json({ status: "pending" });
+    const lineItems = result.transactions.flatMap((transaction) => transaction.line_items || []);
+    console.info("[prava-status]", {
+      session: sessionId.slice(-8),
+      providerStatus: result.status,
+      transactionStatuses: result.transactions.map((transaction) => transaction.status),
+      lineItemStatuses: lineItems.map((item) => item.status),
+      credentialReady: lineItems.map((item) => Boolean(item.token && item.dynamic_cvv && item.expiry_month && item.expiry_year)),
+    });
     if (result.status === "failed") { await persistStatus("payment_failed"); return NextResponse.json({ status: "failed" }); }
     if (result.status === "completed") {
       await persistStatus("confirmed", result.transactions[0]?.txn_id, `RC-${result.order_id}`);
       return NextResponse.json({ status: "confirmed", transactionId: result.transactions[0]?.txn_id, bookingReference: `RC-${result.order_id}`, confirmedAt: new Date().toISOString() });
     }
 
-    const lineItem = result.transactions.flatMap((transaction) => transaction.line_items).find((item) => item.status === "awaiting_result");
-    if (!lineItem) return NextResponse.json({ status: "pending" });
+    const lineItem = lineItems.find((item) => {
+      const status = item.status.toLowerCase().replace(/[^a-z]+/g, "_");
+      return status === "awaiting_result" ||
+        status === "creds_generated" ||
+        Boolean(item.token && item.dynamic_cvv && item.expiry_month && item.expiry_year);
+    });
+    if (!lineItem) return NextResponse.json({ status: "pending", providerStatus: result.status });
     const checkout = await executeMerchantCheckout(lineItem);
+    console.info("[prava-merchant-checkout]", { session: sessionId.slice(-8), status: checkout.status });
     if (checkout.status === "configuration_required") return NextResponse.json({ status: "merchant_checkout_required", message: "Configure REVERSECART_MERCHANT_CHECKOUT_URL to execute the hotel charge." });
     if (checkout.status === "credentials_not_ready") return NextResponse.json({ status: "pending" });
 
